@@ -1,0 +1,32 @@
+# NHL Isolated - Requirements
+# Core dependencies for NHL Player Points prediction system
+
+# HTTP requests
+requests>=2.31.0
+
+# HTML parsing (DailyFaceoff scraper)
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Database (PostgreSQL)
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
+
+# Date/time utilities
+python-dateutil>=2.8.0
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Development
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0

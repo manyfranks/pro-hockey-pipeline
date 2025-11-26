@@ -1,0 +1,45 @@
+# NHL Daily Pipeline - Docker Compose
+#
+# Usage:
+#   # Build and run daily pipeline
+#   docker-compose up --build
+#
+#   # Run with specific date
+#   docker-compose run --rm nhl-pipeline --date 2025-11-26
+#
+#   # Run without LLM insights
+#   docker-compose run --rm nhl-pipeline --no-llm
+#
+#   # Force refresh all data
+#   docker-compose run --rm nhl-pipeline --force-refresh
+#
+#   # Dry run (no database writes)
+#   docker-compose run --rm nhl-pipeline --dry-run
+
+version: '3.8'
+
+services:
+  nhl-pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nhl-daily-pipeline
+
+    # Environment variables (from .env.local or override)
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL_NAME=${OPENROUTER_MODEL_NAME:-google/gemini-2.0-flash-001}
+      - TZ=America/New_York
+
+    # Mount data directory for persistence
+    volumes:
+      - ./data:/app/nhl_isolated/data
+
+    # Network for database access
+    networks:
+      - nhl-network
+
+networks:
+  nhl-network:
+    driver: bridge
