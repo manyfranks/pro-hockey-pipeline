@@ -1,9 +1,9 @@
-# nhl_isolated/utilities/logger.py
+# utilities/logger.py
 """
 Centralized logging configuration for NHL Prediction Pipeline.
 
 Usage:
-    from nhl_isolated.utilities.logger import get_logger
+    from utilities.logger import get_logger
     logger = get_logger(__name__)
     logger.info("Pipeline started")
 """

@@ -33,9 +33,9 @@ Position-specific weights are applied to adjust for different scoring profiles.
 from typing import Dict, Any, List, Optional
 import json
 
-from nhl_isolated.analytics.recent_form_calculator import calculate_recent_form_score
-from nhl_isolated.analytics.goalie_weakness_calculator import calculate_goalie_weakness_score
-from nhl_isolated.analytics.line_opportunity_calculator import calculate_line_opportunity_score
+from analytics.recent_form_calculator import calculate_recent_form_score
+from analytics.goalie_weakness_calculator import calculate_goalie_weakness_score
+from analytics.line_opportunity_calculator import calculate_line_opportunity_score
 
 
 # Global component weights (0-100 scale)

@@ -22,11 +22,11 @@ from typing import List, Dict, Any, Optional
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from nhl_isolated.providers.cached_provider import CachedNHLProvider
-from nhl_isolated.analytics.matchup_analyzer import SvGAnalyzer, calculate_matchup_batch
-from nhl_isolated.analytics.final_score_calculator import calculate_final_scores_batch
-from nhl_isolated.analytics.situational_analyzer import ScheduleAnalyzer, calculate_situational_score
-from nhl_isolated.database.db_manager import NHLDBManager
+from providers.cached_provider import CachedNHLProvider
+from analytics.matchup_analyzer import SvGAnalyzer, calculate_matchup_batch
+from analytics.final_score_calculator import calculate_final_scores_batch
+from analytics.situational_analyzer import ScheduleAnalyzer, calculate_situational_score
+from database.db_manager import NHLDBManager
 
 
 class HistoricalPredictionGenerator:

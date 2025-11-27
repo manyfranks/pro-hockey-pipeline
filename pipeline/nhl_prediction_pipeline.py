@@ -19,11 +19,11 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from nhl_isolated.providers.nhl_official_api import NHLOfficialAPI
-from nhl_isolated.providers.dailyfaceoff_scraper import DailyFaceoffScraper
-from nhl_isolated.analytics.final_score_calculator import calculate_final_scores_batch
-from nhl_isolated.analytics.goalie_weakness_calculator import calculate_goalie_weakness_score
-from nhl_isolated.utilities.logger import get_logger
+from providers.nhl_official_api import NHLOfficialAPI
+from providers.dailyfaceoff_scraper import DailyFaceoffScraper
+from analytics.final_score_calculator import calculate_final_scores_batch
+from analytics.goalie_weakness_calculator import calculate_goalie_weakness_score
+from utilities.logger import get_logger
 
 logger = get_logger('pipeline')
 
@@ -348,7 +348,7 @@ class NHLPredictionPipeline:
             True if successful, False otherwise
         """
         try:
-            from nhl_isolated.database.db_manager import NHLDBManager
+            from database.db_manager import NHLDBManager
 
             db = NHLDBManager()
 
@@ -460,7 +460,7 @@ class NHLPredictionPipeline:
             True if successful, False otherwise
         """
         try:
-            from nhl_isolated.database.db_manager import NHLDBManager
+            from database.db_manager import NHLDBManager
 
             # Get all team line data from cache
             line_data = self.dailyfaceoff.get_all_teams()
@@ -491,7 +491,7 @@ class NHLPredictionPipeline:
             True if successful, False otherwise
         """
         try:
-            from nhl_isolated.database.db_manager import NHLDBManager
+            from database.db_manager import NHLDBManager
 
             db = NHLDBManager()
 

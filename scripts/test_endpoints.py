@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env.local')
 load_dotenv(env_path)
 
-from nhl_isolated.providers.sportsdataio_nhl import SportsDataIONHLProvider
+from providers.sportsdataio_nhl import SportsDataIONHLProvider
 
 
 class EndpointTester:

@@ -19,7 +19,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from collections import defaultdict
 
-from nhl_isolated.utilities.logger import get_logger
+from utilities.logger import get_logger
 
 logger = get_logger('insights')
 
@@ -810,7 +810,7 @@ def generate_insights_from_file(
     db = None
     if include_settlement:
         try:
-            from nhl_isolated.database.db_manager import NHLDBManager
+            from database.db_manager import NHLDBManager
             db = NHLDBManager()
         except Exception:
             pass
@@ -847,7 +847,7 @@ def generate_insights_for_date(
     # Try database first (production path)
     if use_database:
         try:
-            from nhl_isolated.database.db_manager import NHLDBManager
+            from database.db_manager import NHLDBManager
             db = NHLDBManager()
             predictions = db.get_predictions_for_date(target_date)
             if predictions:
@@ -882,7 +882,7 @@ def generate_insights_for_date(
     # Initialize DB manager for settlement analysis if not already set
     if include_settlement and db is None:
         try:
-            from nhl_isolated.database.db_manager import NHLDBManager
+            from database.db_manager import NHLDBManager
             db = NHLDBManager()
         except Exception:
             pass

@@ -17,9 +17,9 @@ import os
 from datetime import date, timedelta
 from typing import List, Dict, Any, Optional
 
-from nhl_isolated.providers.nhl_official_api import NHLOfficialAPI
-from nhl_isolated.database.db_manager import NHLDBManager
-from nhl_isolated.utilities.logger import get_logger
+from providers.nhl_official_api import NHLOfficialAPI
+from database.db_manager import NHLDBManager
+from utilities.logger import get_logger
 
 logger = get_logger('settlement')
 

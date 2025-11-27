@@ -25,7 +25,7 @@ from datetime import date, timedelta
 def check_database() -> bool:
     """Check if database is accessible."""
     try:
-        from nhl_isolated.database.db_manager import NHLDBManager
+        from database.db_manager import NHLDBManager
         db = NHLDBManager()
         # Try to get recent predictions
         yesterday = date.today() - timedelta(days=1)
@@ -38,7 +38,7 @@ def check_database() -> bool:
 def check_nhl_api() -> bool:
     """Check if NHL API is accessible."""
     try:
-        from nhl_isolated.providers.nhl_official_api import NHLOfficialAPI
+        from providers.nhl_official_api import NHLOfficialAPI
         api = NHLOfficialAPI()
         games = api.get_games_by_date(date.today())
         # API should return a list (even if empty)
@@ -52,7 +52,7 @@ def check_nhl_api() -> bool:
 def check_dailyfaceoff() -> bool:
     """Check if DailyFaceoff scraper is working."""
     try:
-        from nhl_isolated.providers.dailyfaceoff_scraper import DailyFaceoffScraper
+        from providers.dailyfaceoff_scraper import DailyFaceoffScraper
         scraper = DailyFaceoffScraper()
         # Try to get line data for a popular team
         lines = scraper.get_team_lines('EDM')
@@ -67,7 +67,7 @@ def check_dailyfaceoff() -> bool:
 def check_recent_predictions() -> bool:
     """Check if we have recent predictions in the database."""
     try:
-        from nhl_isolated.database.db_manager import NHLDBManager
+        from database.db_manager import NHLDBManager
         db = NHLDBManager()
 
         # Check for predictions in the last 7 days

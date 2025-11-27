@@ -355,7 +355,7 @@ if __name__ == '__main__':
     from dotenv import load_dotenv
     load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), '.env.local'))
 
-    from nhl_isolated.providers.cached_provider import CachedNHLProvider
+    from providers.cached_provider import CachedNHLProvider
 
     print("=" * 70)
     print("SITUATIONAL ANALYZER TEST")

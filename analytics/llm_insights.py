@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 
-from nhl_isolated.utilities.logger import get_logger
-from nhl_isolated.analytics.insights_generator import (
+from utilities.logger import get_logger
+from analytics.insights_generator import (
     NHLInsightsGenerator,
     InsightsReport,
     generate_insights_for_date,
@@ -757,7 +757,7 @@ def main():
     # Initialize DB if available
     db = None
     try:
-        from nhl_isolated.database.db_manager import NHLDBManager
+        from database.db_manager import NHLDBManager
         db = NHLDBManager()
     except Exception as e:
         logger.warning(f"Database not available: {e}")

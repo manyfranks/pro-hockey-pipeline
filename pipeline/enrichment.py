@@ -15,8 +15,8 @@ from datetime import date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
 
-from nhl_isolated.providers.cached_provider import CachedNHLProvider
-from nhl_isolated.analytics.situational_analyzer import ScheduleAnalyzer, calculate_situational_score
+from providers.cached_provider import CachedNHLProvider
+from analytics.situational_analyzer import ScheduleAnalyzer, calculate_situational_score
 
 
 class NHLEnrichmentPipeline:

@@ -34,7 +34,7 @@ services:
 
     # Mount data directory for persistence
     volumes:
-      - ./data:/app/nhl_isolated/data
+      - ./data:/app/data
 
     # Network for database access
     networks:

@@ -9,8 +9,8 @@ import os
 from datetime import date
 from typing import List, Dict, Any, Optional
 
-from nhl_isolated.providers.sportsdataio_nhl import SportsDataIONHLProvider
-from nhl_isolated.utilities.cache_manager import CacheManager
+from providers.sportsdataio_nhl import SportsDataIONHLProvider
+from utilities.cache_manager import CacheManager
 
 
 class CachedNHLProvider:

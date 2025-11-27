@@ -25,7 +25,7 @@ from datetime import datetime, date, timedelta, timezone
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 
-from nhl_isolated.utilities.logger import get_logger
+from utilities.logger import get_logger
 
 logger = get_logger('nhl_api')
 

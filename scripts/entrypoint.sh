@@ -24,7 +24,7 @@ echo "=============================================="
 run_predictions() {
     echo ""
     echo "[PREDICTIONS] Starting prediction pipeline..."
-    python3 -m nhl_isolated.pipeline.nhl_prediction_pipeline --db
+    python3 -m pipeline.nhl_prediction_pipeline --db
     echo "[PREDICTIONS] Complete"
 }
 
@@ -32,7 +32,7 @@ run_settlement() {
     echo ""
     echo "[SETTLEMENT] Starting settlement pipeline..."
     # Settle yesterday's predictions by default
-    python3 -m nhl_isolated.pipeline.settlement
+    python3 -m pipeline.settlement
     echo "[SETTLEMENT] Complete"
 }
 
@@ -44,7 +44,7 @@ run_backfill() {
     fi
     echo ""
     echo "[BACKFILL] Starting backfill for $date_range..."
-    python3 -m nhl_isolated.pipeline.nhl_prediction_pipeline --backfill "$date_range" --db
+    python3 -m pipeline.nhl_prediction_pipeline --backfill "$date_range" --db
     echo "[BACKFILL] Complete"
 }
 

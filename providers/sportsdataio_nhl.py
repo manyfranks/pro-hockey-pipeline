@@ -16,7 +16,7 @@ import os
 import requests
 from typing import List, Dict, Any, Optional
 from datetime import date, datetime
-from nhl_isolated.providers.base import NHLDataProvider
+from providers.base import NHLDataProvider
 
 
 class SportsDataIONHLProvider(NHLDataProvider):

@@ -60,8 +60,8 @@ def load_env():
 
 load_env()
 
-from nhl_isolated.utilities.logger import get_logger
-from nhl_isolated.database.db_manager import NHLDBManager
+from utilities.logger import get_logger
+from database.db_manager import NHLDBManager
 
 logger = get_logger('orchestrator')
 
@@ -144,7 +144,7 @@ class DailyOrchestrator:
     def _run_settlement(self, settlement_date: date) -> Dict[str, Any]:
         """Run settlement for yesterday's games."""
         try:
-            from nhl_isolated.pipeline.settlement import SettlementPipeline
+            from pipeline.settlement import SettlementPipeline
 
             settler = SettlementPipeline()
             result = settler.settle_date(settlement_date, dry_run=self.dry_run)
@@ -165,7 +165,7 @@ class DailyOrchestrator:
     def _run_predictions(self, prediction_date: date) -> Dict[str, Any]:
         """Run prediction pipeline for today's games."""
         try:
-            from nhl_isolated.pipeline.nhl_prediction_pipeline import NHLPredictionPipeline
+            from pipeline.nhl_prediction_pipeline import NHLPredictionPipeline
 
             pipeline = NHLPredictionPipeline()
             predictions = pipeline.generate_predictions(
@@ -207,8 +207,8 @@ class DailyOrchestrator:
     def _run_insights(self, target_date: date, include_llm: bool) -> Dict[str, Any]:
         """Generate insights for today's predictions."""
         try:
-            from nhl_isolated.analytics.insights_generator import generate_insights_for_date
-            from nhl_isolated.analytics.llm_insights import LLMConfig, NHLDailyReportGenerator
+            from analytics.insights_generator import generate_insights_for_date
+            from analytics.llm_insights import LLMConfig, NHLDailyReportGenerator
 
             # Generate rule-based insights
             print("\n[Phase 0] Generating rule-based insights...")
