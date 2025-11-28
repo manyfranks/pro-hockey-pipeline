@@ -170,6 +170,10 @@ class NHLDBManager:
             Column('actual_assists', Integer, nullable=True),
             Column('point_outcome', Integer, nullable=True),  # 1: Got point, 0: No point, 2: PPD, 3: DNP
 
+            # Scoring gate flag - only these predictions count toward hit rate
+            # Criteria: (line_number <= 3 OR pp_unit >= 1) AND final_score >= 55
+            Column('is_scoreable', Boolean, default=False),
+
             # Timestamps
             Column('created_at', TIMESTAMP, default=text("timezone('utc', now())")),
             Column('updated_at', TIMESTAMP, default=text("timezone('utc', now())")),
@@ -359,6 +363,13 @@ class NHLDBManager:
                 situational_score = player.get('situational_score') or component_scores.get('situational', {}).get('raw')
                 days_rest = situational.get('days_rest')
 
+                # Compute is_scoreable: Core players (Top 3 lines OR PP) with score >= 55
+                line_num = player.get('line_number', 4)
+                pp_unit = player.get('pp_unit', 0)
+                final_score = player.get('final_score', 0) or 0
+                is_core = (line_num <= 3) or (pp_unit >= 1)
+                is_scoreable = is_core and (final_score >= 55)
+
                 stmt = insert(self.nhl_daily_predictions_table).values(
                     player_id=player['player_id'],
                     game_id=player['game_id'],
@@ -421,6 +432,9 @@ class NHLDBManager:
                     season_assists=player.get('season_assists'),
                     season_points=player.get('season_points'),
                     season_pp_goals=player.get('season_pp_goals'),
+
+                    # Scoring gate
+                    is_scoreable=is_scoreable,
                 )
 
                 stmt = stmt.on_conflict_do_update(
@@ -464,6 +478,7 @@ class NHLDBManager:
                         'season_assists': stmt.excluded.season_assists,
                         'season_points': stmt.excluded.season_points,
                         'season_pp_goals': stmt.excluded.season_pp_goals,
+                        'is_scoreable': stmt.excluded.is_scoreable,
                         'updated_at': text("timezone('utc', now())")
                     }
                 )
@@ -676,26 +691,39 @@ class NHLDBManager:
 
         print(f"[NHL DB] Updated settlement for {len(settlements)} predictions.")
 
-    def get_hit_rate_summary(self, start_date: date = None, end_date: date = None) -> Dict[str, Any]:
+    def get_hit_rate_summary(
+        self,
+        start_date: date = None,
+        end_date: date = None,
+        scoreable_only: bool = True
+    ) -> Dict[str, Any]:
         """
         Calculate hit rate statistics for predictions.
 
         Args:
             start_date: Start of date range (optional)
             end_date: End of date range (optional)
+            scoreable_only: If True (default), only count predictions where is_scoreable=True.
+                           This filters to Core players (Top 3 lines OR PP) with score >= 55.
+                           Set to False for full analytics across all predictions.
 
         Returns:
             Dictionary with hit rate statistics by tier
         """
         with self.Session() as session:
-            # Build date filter
-            date_filter = ""
+            # Build filters
+            base_filter = ""
             params = {}
+
+            # Scoreable filter (default: only count gated predictions)
+            if scoreable_only:
+                base_filter += " AND is_scoreable = TRUE"
+
             if start_date:
-                date_filter += " AND analysis_date >= :start_date"
+                base_filter += " AND analysis_date >= :start_date"
                 params['start_date'] = start_date
             if end_date:
-                date_filter += " AND analysis_date <= :end_date"
+                base_filter += " AND analysis_date <= :end_date"
                 params['end_date'] = end_date
 
             # Overall hit rate
@@ -706,7 +734,7 @@ class NHLDBManager:
                     SUM(CASE WHEN point_outcome = 0 THEN 1 ELSE 0 END) as misses,
                     SUM(CASE WHEN point_outcome IN (2, 3) THEN 1 ELSE 0 END) as excluded
                 FROM nhl_daily_predictions
-                WHERE point_outcome IS NOT NULL {date_filter}
+                WHERE point_outcome IS NOT NULL {base_filter}
             """)
 
             result = session.execute(stmt, params).fetchone()
@@ -720,7 +748,7 @@ class NHLDBManager:
                     ROUND(SUM(CASE WHEN point_outcome = 1 THEN 1 ELSE 0 END)::numeric /
                           NULLIF(SUM(CASE WHEN point_outcome IN (0, 1) THEN 1 ELSE 0 END), 0) * 100, 1) as hit_rate
                 FROM nhl_daily_predictions
-                WHERE point_outcome IS NOT NULL {date_filter}
+                WHERE point_outcome IS NOT NULL {base_filter}
                 GROUP BY confidence
                 ORDER BY
                     CASE confidence
@@ -751,7 +779,7 @@ class NHLDBManager:
                         END as sort_order,
                         point_outcome
                     FROM nhl_daily_predictions
-                    WHERE point_outcome IS NOT NULL {date_filter}
+                    WHERE point_outcome IS NOT NULL {base_filter}
                 )
                 SELECT
                     rank_bucket,
@@ -779,6 +807,7 @@ class NHLDBManager:
                 'hits': hits,
                 'misses': misses,
                 'overall_hit_rate': round(hits / valid * 100, 1) if valid > 0 else None,
+                'scoreable_only': scoreable_only,
                 'by_confidence': [
                     {'tier': r[0], 'total': r[1], 'hits': r[2], 'hit_rate': float(r[3]) if r[3] else None}
                     for r in tier_results
@@ -789,19 +818,26 @@ class NHLDBManager:
                 ]
             }
 
-    def get_predictions_for_date(self, analysis_date: date, top_n: int = None) -> List[Dict[str, Any]]:
+    def get_predictions_for_date(
+        self,
+        analysis_date: date,
+        top_n: int = None,
+        scoreable_only: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         Get all predictions for a specific date (for insights generation).
 
         Args:
             analysis_date: Date to fetch predictions for
             top_n: Optional limit to top N predictions by rank
+            scoreable_only: If True, only return predictions where is_scoreable=True
 
         Returns:
             List of prediction dictionaries with full data for insights
         """
         with self.Session() as session:
             limit_clause = f"LIMIT {top_n}" if top_n else ""
+            scoreable_filter = "AND is_scoreable = TRUE" if scoreable_only else ""
 
             stmt = text(f"""
                 SELECT
@@ -834,9 +870,10 @@ class NHLDBManager:
                     point_outcome,
                     actual_points,
                     actual_goals,
-                    actual_assists
+                    actual_assists,
+                    is_scoreable
                 FROM nhl_daily_predictions
-                WHERE analysis_date = :analysis_date
+                WHERE analysis_date = :analysis_date {scoreable_filter}
                 ORDER BY rank ASC NULLS LAST, final_score DESC
                 {limit_clause}
             """)
@@ -854,7 +891,8 @@ class NHLDBManager:
                 'season_pp_goals', 'avg_toi_minutes', 'recent_ppg', 'point_streak',
                 'opposing_goalie_name', 'opposing_goalie_sv_pct', 'opposing_goalie_gaa',
                 'final_score', 'confidence', 'rank', 'matchup_score', 'situational_score',
-                'point_outcome', 'actual_points', 'actual_goals', 'actual_assists'
+                'point_outcome', 'actual_points', 'actual_goals', 'actual_assists',
+                'is_scoreable'
             ]
 
             predictions = []
