@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Migration script to add is_scoreable column and backfill existing records.
+Also adds llm_structured column for structured LLM responses.
 
 Run this once after deploying the code changes:
     python scripts/migrate_add_is_scoreable.py
@@ -113,6 +114,28 @@ def migrate():
 
         for row in session.execute(comparison_stmt).fetchall():
             print(f"           {row[0]:20} | {row[1]:>6} settled | {row[2]:>5} hits | {row[3]:>5}% hit rate")
+
+        # Step 5: Add llm_structured column to nhl_daily_insights
+        print("\n[Migration] Checking if llm_structured column exists...")
+        check_llm_stmt = text("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'nhl_daily_insights'
+            AND column_name = 'llm_structured'
+        """)
+        result = session.execute(check_llm_stmt).fetchone()
+
+        if not result:
+            print("[Migration] Adding llm_structured column to nhl_daily_insights...")
+            add_llm_col_stmt = text("""
+                ALTER TABLE nhl_daily_insights
+                ADD COLUMN llm_structured JSONB
+            """)
+            session.execute(add_llm_col_stmt)
+            session.commit()
+            print("[Migration] llm_structured column added.")
+        else:
+            print("[Migration] llm_structured column already exists.")
 
     print("\n[Migration] Complete!")
 

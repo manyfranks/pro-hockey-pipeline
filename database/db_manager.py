@@ -223,7 +223,8 @@ class NHLDBManager:
             Column('analysis_date', Date, nullable=False, unique=True),
 
             # LLM-generated content (expensive to regenerate)
-            Column('llm_narrative', String, nullable=True),  # Full LLM analysis text
+            Column('llm_narrative', String, nullable=True),  # Raw LLM response text
+            Column('llm_structured', JSONB, nullable=True),  # Parsed JSON structure for frontend
             Column('llm_model', String(100), nullable=True),  # Model used (e.g., google/gemini-2.0-flash-001)
 
             # Full insights report as JSONB (hot streaks, parlays, etc.)
@@ -970,6 +971,7 @@ class NHLDBManager:
         self,
         analysis_date: date,
         llm_narrative: Optional[str] = None,
+        llm_structured: Optional[Dict] = None,
         llm_model: Optional[str] = None,
         full_report: Optional[Dict] = None,
         total_predictions: int = 0,
@@ -980,7 +982,8 @@ class NHLDBManager:
 
         Args:
             analysis_date: Date of the analysis
-            llm_narrative: LLM-generated narrative text
+            llm_narrative: Raw LLM-generated text response
+            llm_structured: Parsed JSON structure for frontend consumption
             llm_model: Model used for generation
             full_report: Full InsightsReport as dict
             total_predictions: Number of predictions analyzed
@@ -990,17 +993,19 @@ class NHLDBManager:
             stmt = insert(self.nhl_daily_insights_table).values(
                 analysis_date=analysis_date,
                 llm_narrative=llm_narrative,
+                llm_structured=json.dumps(llm_structured) if llm_structured else None,
                 llm_model=llm_model,
                 full_report=json.dumps(full_report) if full_report else None,
                 total_predictions=total_predictions,
                 games_count=games_count,
-                generated_at=datetime.utcnow()
+                generated_at=datetime.now(datetime.timezone.utc) if hasattr(datetime, 'timezone') else datetime.utcnow()
             )
 
             stmt = stmt.on_conflict_do_update(
                 index_elements=['analysis_date'],
                 set_={
                     'llm_narrative': stmt.excluded.llm_narrative,
+                    'llm_structured': stmt.excluded.llm_structured,
                     'llm_model': stmt.excluded.llm_model,
                     'full_report': stmt.excluded.full_report,
                     'total_predictions': stmt.excluded.total_predictions,
@@ -1037,9 +1042,11 @@ class NHLDBManager:
             columns = [col.name for col in self.nhl_daily_insights_table.columns]
             data = dict(zip(columns, result))
 
-            # Parse JSONB full_report if present
+            # Parse JSONB fields if present
             if data.get('full_report') and isinstance(data['full_report'], str):
                 data['full_report'] = json.loads(data['full_report'])
+            if data.get('llm_structured') and isinstance(data['llm_structured'], str):
+                data['llm_structured'] = json.loads(data['llm_structured'])
 
             return data
 

@@ -238,7 +238,9 @@ When analyzing:
 - Highlight favorable matchups (weak goalies, high-scoring games)
 - Note any concerning patterns in recent misses
 - Provide parlay advice with appropriate risk warnings
-- Be specific with player names and stats"""
+- Be specific with player names and stats
+
+IMPORTANT: You MUST respond with valid JSON only. No markdown, no extra text. Your response must be parseable by JSON.parse()."""
 
     @staticmethod
     def build_analysis_prompt(
@@ -300,19 +302,33 @@ TODAY'S TOP 10 PREDICTIONS:
 
 {goalie_text}
 
-Based on this data, provide:
+Respond with a JSON object containing these fields:
 
-1. **System Health Check** (2-3 sentences): Is our prediction system running hot, cold, or neutral based on recent performance? Be specific with numbers.
+{{
+  "system_health": {{
+    "status": "hot" | "neutral" | "cold",
+    "summary": "2-3 sentence analysis of system performance with specific hit rate numbers"
+  }},
+  "top_picks": {{
+    "summary": "3-4 sentence analysis of why the top 3 picks are strong today",
+    "highlights": ["key point 1", "key point 2", "key point 3"]
+  }},
+  "value_plays": {{
+    "summary": "2-3 sentence analysis of value picks in positions 4-10",
+    "players": ["player name 1", "player name 2"]
+  }},
+  "caution_flags": {{
+    "summary": "2-3 sentence warning about risks to watch",
+    "concerns": ["concern 1", "concern 2"]
+  }},
+  "parlay_pick": {{
+    "legs": ["Player Name 1", "Player Name 2"],
+    "reasoning": "2-3 sentence explanation of why this parlay makes sense",
+    "confidence": "high" | "medium" | "low"
+  }}
+}}
 
-2. **Top Pick Analysis** (3-4 sentences): Why are our top 3 picks strong today? What makes them stand out?
-
-3. **Value Plays** (2-3 sentences): Are there any picks in positions 4-10 that offer exceptional value?
-
-4. **Caution Flags** (2-3 sentences): Any concerns or risks to be aware of today?
-
-5. **Parlay Recommendation** (2-3 sentences): What's your recommended 2-leg parlay and why?
-
-Be concise and actionable. Use specific player names and numbers."""
+Be concise and actionable. Use specific player names and numbers. Return ONLY valid JSON."""
 
         return prompt
 
@@ -373,16 +389,44 @@ class LLMInsightsGenerator:
         )
 
         # Call LLM
-        narrative = self._call_llm(prompt)
+        raw_response = self._call_llm(prompt)
+
+        # Parse JSON response
+        structured_insights = self._parse_llm_response(raw_response)
 
         return {
             'analysis_date': rule_insights.analysis_date,
             'generated_at': datetime.now().isoformat(),
-            'narrative': narrative,
+            'narrative': raw_response,  # Keep raw for backwards compatibility
+            'structured': structured_insights,  # New structured format for frontend
             'rule_based_insights': rule_insights,
             'settlement_data': settlement_data,
             'prompt_used': prompt,  # For debugging
         }
+
+    def _parse_llm_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse LLM JSON response into structured format.
+
+        Returns parsed dict or None if parsing fails.
+        """
+        if not response:
+            return None
+
+        try:
+            # Try to extract JSON from response (in case LLM added extra text)
+            # Look for JSON object pattern
+            import re
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                return json.loads(json_match.group())
+            return None
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error parsing LLM response: {e}")
+            return None
 
     def _call_llm(self, prompt: str) -> str:
         """Call the LLM API."""
@@ -573,6 +617,7 @@ class NHLDailyReportGenerator:
             'total_predictions': len(predictions),
             'rule_based_insights': rule_insights,
             'llm_narrative': None,
+            'llm_structured': None,
         }
 
         # Generate LLM insights (Phase 1)
@@ -583,6 +628,7 @@ class NHLDailyReportGenerator:
                     lookback_days=lookback_days
                 )
                 report['llm_narrative'] = llm_result.get('narrative')
+                report['llm_structured'] = llm_result.get('structured')
             except Exception as e:
                 logger.error(f"LLM generation failed: {e}")
                 report['llm_narrative'] = f"LLM insights unavailable: {e}"
@@ -665,6 +711,7 @@ class NHLDailyReportGenerator:
                 self.db.upsert_daily_insights(
                     analysis_date=analysis_date_obj,
                     llm_narrative=report.get('llm_narrative'),
+                    llm_structured=report.get('llm_structured'),
                     llm_model=self.llm_config.model if self.llm_config else None,
                     full_report=self._make_json_safe(report),
                     total_predictions=report.get('total_predictions', 0),
