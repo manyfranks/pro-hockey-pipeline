@@ -527,8 +527,9 @@ class NHLDailyReportGenerator:
 
     def __init__(self, db_manager=None, llm_config: LLMConfig = None):
         self.db = db_manager
+        self.llm_config = llm_config or LLMConfig()
         self.rule_generator = NHLInsightsGenerator(db_manager)
-        self.llm_generator = LLMInsightsGenerator(llm_config, db_manager)
+        self.llm_generator = LLMInsightsGenerator(self.llm_config, db_manager)
 
     def generate_full_report(
         self,
