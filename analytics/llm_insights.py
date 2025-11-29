@@ -611,10 +611,14 @@ class NHLDailyReportGenerator:
             lookback_days=lookback_days
         )
 
+        # Count unique games from predictions
+        unique_game_ids = set(p.get('game_id') for p in predictions if p.get('game_id'))
+
         report = {
             'analysis_date': str(target_date),
             'generated_at': datetime.now().isoformat(),
             'total_predictions': len(predictions),
+            'games_count': len(unique_game_ids),
             'rule_based_insights': rule_insights,
             'llm_narrative': None,
             'llm_structured': None,
@@ -715,7 +719,7 @@ class NHLDailyReportGenerator:
                     llm_model=self.llm_config.model if self.llm_config else None,
                     full_report=self._make_json_safe(report),
                     total_predictions=report.get('total_predictions', 0),
-                    games_count=len(report.get('games', []))
+                    games_count=report.get('games_count', 0)
                 )
                 logger.info(f"Report cached to database for {analysis_date}")
             except Exception as e:
