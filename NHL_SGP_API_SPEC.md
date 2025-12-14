@@ -1,8 +1,10 @@
 # NHL SGP Engine API Specification
 
-**Version:** 1.0
-**Last Updated:** December 13, 2025
+**Version:** 1.1
+**Last Updated:** December 14, 2025
 **Base URL:** `https://[project-id].supabase.co/rest/v1`
+
+> **Changelog v1.1**: Fixed data type serialization in query responses. UUIDs are now returned as strings, Decimals as floats. Added duplicate settlement check. Added `get_settlements_by_date` and `get_settlement_for_parlay` methods.
 
 ---
 
@@ -412,5 +414,19 @@ def run_daily_tasks():
 
 ---
 
-*Document Version: 1.0*
-*Last Updated: December 2025*
+*Document Version: 1.1*
+*Last Updated: December 14, 2025*
+
+---
+
+## Changelog
+
+### v1.1 (December 14, 2025)
+- **Data Type Serialization**: UUIDs returned as strings, Decimals as floats for JSON compatibility
+- **New DB Methods**: Added `get_settlement_for_parlay()` and `get_settlements_by_date()`
+- **Duplicate Settlement Check**: Settlement script now checks for existing settlements before inserting
+- **UUID Handling**: Settlement script properly converts string UUIDs back to UUID objects for DB queries
+- **NULL Handling**: Fixed LEFT JOIN in `get_parlays_by_date()` to return empty array instead of `[null]`
+
+### v1.0 (December 13, 2025)
+- Initial release

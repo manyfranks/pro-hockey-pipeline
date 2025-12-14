@@ -1,8 +1,10 @@
 # NHL SGP Frontend API Specification
 
-**Version:** 1.0
-**Last Updated:** December 13, 2025
+**Version:** 1.1
+**Last Updated:** December 14, 2025
 **Base URL:** `https://[project-id].supabase.co/rest/v1`
+
+> **Changelog v1.1**: Fixed data type serialization (UUIDs as strings, Decimals as floats). Added `player_id`, `supporting_reasons`, `risk_factors`, `created_at` fields to legs. Added settlements query methods.
 
 ---
 
@@ -94,11 +96,13 @@ GET /nhl_sgp_parlays?game_date=eq.2025-12-14&select=*,nhl_sgp_legs(*)&order=crea
     "season": 2025,
     "season_type": "regular",
     "created_at": "2025-12-14T14:00:00Z",
-    "nhl_sgp_legs": [
+    "updated_at": "2025-12-14T14:00:00Z",
+    "legs": [
       {
         "id": "b2c3d4e5-2222-4000-8000-000000000001",
         "leg_number": 1,
         "player_name": "Auston Matthews",
+        "player_id": 8479318,
         "team": "TOR",
         "position": "C",
         "stat_type": "points",
@@ -110,18 +114,23 @@ GET /nhl_sgp_parlays?game_date=eq.2025-12-14&select=*,nhl_sgp_legs(*)&order=crea
         "model_probability": 0.5842,
         "market_probability": 0.5743,
         "primary_reason": "Season avg 1.2 pts is 140% above 0.5 line",
+        "supporting_reasons": [],
+        "risk_factors": [],
         "signals": {
           "line_value": {"strength": 0.95, "evidence": "Strong edge over line"},
           "trend": {"strength": 0.17, "evidence": "L5 trending up"},
           "matchup": {"strength": 0.20, "evidence": "MTL allows 3.4 GA/gm"}
         },
         "actual_value": null,
-        "result": null
+        "result": null,
+        "created_at": "2025-12-14T14:00:00Z"
       }
     ]
   }
 ]
 ```
+
+> **Note**: When using Supabase PostgREST nested queries (`select=*,nhl_sgp_legs(*)`), the legs array key will be `nhl_sgp_legs`. When using direct SQL or Python db manager, the key is `legs`.
 
 ### 2. Get Parlays by Date Range
 
@@ -202,57 +211,67 @@ Content-Type: application/json
 
 ## Response Models
 
+> **Important**: All UUIDs are serialized as strings. All Decimal values are serialized as floats. This ensures JSON compatibility across all clients.
+
 ### Parlay Object
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `parlay_type` | string | `primary`, `theme_stack`, `value_play` |
-| `game_id` | string | Unique game identifier |
-| `game_date` | date | Game date (YYYY-MM-DD) |
-| `home_team` | string | Team abbreviation (3 chars) |
-| `away_team` | string | Team abbreviation (3 chars) |
-| `game_slot` | string | `EVENING`, `AFTERNOON`, `MATINEE` |
-| `total_legs` | integer | Number of legs (3-4) |
-| `combined_odds` | integer | American odds (+450) |
-| `implied_probability` | decimal | Win probability (0.1818) |
-| `thesis` | string | Narrative explanation |
-| `season` | integer | NHL season year |
-| `season_type` | string | `regular`, `playoffs` |
-| `created_at` | timestamp | Generation time |
+| Field | Type | JSON Type | Description |
+|-------|------|-----------|-------------|
+| `id` | UUID | `string` | Primary key (UUID as string) |
+| `parlay_type` | string | `string` | `primary`, `theme_stack`, `value_play` |
+| `game_id` | string | `string` | Unique game identifier |
+| `game_date` | date | `string` | Game date (YYYY-MM-DD) |
+| `home_team` | string | `string` | Team abbreviation (3 chars) |
+| `away_team` | string | `string` | Team abbreviation (3 chars) |
+| `game_slot` | string | `string` | `EVENING`, `AFTERNOON`, `MATINEE` |
+| `total_legs` | integer | `number` | Number of legs (3-4) |
+| `combined_odds` | integer | `number` | American odds (+450) |
+| `implied_probability` | decimal | `number` | Win probability (0.1818) |
+| `thesis` | string | `string` | Narrative explanation |
+| `season` | integer | `number` | NHL season start year |
+| `season_type` | string | `string` | `regular`, `playoffs` |
+| `created_at` | timestamp | `string` | Generation time (ISO 8601) |
+| `updated_at` | timestamp | `string` | Last update time (ISO 8601) |
 
 ### Leg Object
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `parlay_id` | UUID | FK to parlay |
-| `leg_number` | integer | Order (1, 2, 3, 4) |
-| `player_name` | string | Player display name |
-| `team` | string | Team abbreviation |
-| `position` | string | `C`, `LW`, `RW`, `D`, `G` |
-| `stat_type` | string | `points`, `shots_on_goal` |
-| `line` | decimal | Prop line (0.5, 3.5) |
-| `direction` | string | `over` or `under` |
-| `odds` | integer | American odds (-110) |
-| `edge_pct` | decimal | Projected edge (12.5) |
-| `confidence` | decimal | 0.0 to 1.0 |
-| `primary_reason` | string | Main evidence |
-| `signals` | JSONB | Full signal breakdown |
-| `actual_value` | decimal | Post-game actual (null if unsettled) |
-| `result` | string | `WIN`, `LOSS`, `PUSH`, `VOID`, null |
+| Field | Type | JSON Type | Description |
+|-------|------|-----------|-------------|
+| `id` | UUID | `string` | Primary key (UUID as string) |
+| `parlay_id` | UUID | `string` | FK to parlay (UUID as string) |
+| `leg_number` | integer | `number` | Order (1, 2, 3, 4) |
+| `player_name` | string | `string` | Player display name |
+| `player_id` | integer | `number\|null` | NHL API player ID |
+| `team` | string | `string` | Team abbreviation |
+| `position` | string | `string\|null` | `C`, `LW`, `RW`, `D`, `G` |
+| `stat_type` | string | `string` | `points`, `shots_on_goal` |
+| `line` | decimal | `number` | Prop line (0.5, 3.5) |
+| `direction` | string | `string` | `over` or `under` |
+| `odds` | integer | `number` | American odds (-110) |
+| `edge_pct` | decimal | `number` | Projected edge (12.5) |
+| `confidence` | decimal | `number` | 0.0 to 1.0 |
+| `model_probability` | decimal | `number` | Model's win probability |
+| `market_probability` | decimal | `number` | Implied from odds |
+| `primary_reason` | string | `string` | Main evidence |
+| `supporting_reasons` | JSONB | `array` | Additional evidence (string[]) |
+| `risk_factors` | JSONB | `array` | Risk factors (string[]) |
+| `signals` | JSONB | `object` | Full signal breakdown |
+| `actual_value` | decimal | `number\|null` | Post-game actual |
+| `result` | string | `string\|null` | `WIN`, `LOSS`, `PUSH`, `VOID` |
+| `created_at` | timestamp | `string` | Leg creation time (ISO 8601) |
 
 ### Settlement Object
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `parlay_id` | UUID | FK to parlay |
-| `legs_hit` | integer | Legs that hit |
-| `total_legs` | integer | Total scoreable legs |
-| `result` | string | `WIN`, `LOSS`, `VOID` |
-| `profit` | decimal | At $100 stake |
-| `settled_at` | timestamp | Settlement time |
+| Field | Type | JSON Type | Description |
+|-------|------|-----------|-------------|
+| `id` | UUID | `string` | Primary key (UUID as string) |
+| `parlay_id` | UUID | `string` | FK to parlay (UUID as string) |
+| `legs_hit` | integer | `number` | Legs that hit |
+| `total_legs` | integer | `number` | Total scoreable legs |
+| `result` | string | `string` | `WIN`, `LOSS`, `VOID` |
+| `profit` | decimal | `number` | At $100 stake |
+| `settled_at` | timestamp | `string` | Settlement time (ISO 8601) |
+| `notes` | string | `string\|null` | Settlement notes |
 
 ### Signal Object (JSONB)
 
@@ -440,22 +459,88 @@ components/
     SettlementBadge.tsx     # WIN/LOSS/PENDING badge
 ```
 
+### TypeScript Interfaces
+
+```typescript
+// Full interface definitions for type-safe integration
+interface Parlay {
+  id: string                    // UUID as string
+  parlay_type: 'primary' | 'theme_stack' | 'value_play'
+  game_id: string
+  game_date: string             // YYYY-MM-DD
+  home_team: string
+  away_team: string
+  game_slot: 'EVENING' | 'AFTERNOON' | 'MATINEE'
+  total_legs: number
+  combined_odds: number
+  implied_probability: number
+  thesis: string
+  season: number
+  season_type: 'regular' | 'playoffs'
+  created_at: string            // ISO 8601
+  updated_at: string            // ISO 8601
+  legs?: Leg[]                  // When using direct SQL
+  nhl_sgp_legs?: Leg[]          // When using PostgREST nested query
+  nhl_sgp_settlements?: Settlement[]
+}
+
+interface Leg {
+  id: string                    // UUID as string
+  parlay_id?: string            // UUID as string (may not be included)
+  leg_number: number
+  player_name: string
+  player_id: number | null      // NHL API player ID
+  team: string
+  position: string | null       // C, LW, RW, D, G
+  stat_type: 'points' | 'shots_on_goal'
+  line: number
+  direction: 'over' | 'under'
+  odds: number
+  edge_pct: number
+  confidence: number
+  model_probability: number
+  market_probability: number
+  primary_reason: string
+  supporting_reasons: string[]
+  risk_factors: string[]
+  signals: SignalBreakdown
+  actual_value: number | null
+  result: 'WIN' | 'LOSS' | 'PUSH' | 'VOID' | null
+  created_at: string            // ISO 8601
+}
+
+interface Settlement {
+  id: string                    // UUID as string
+  parlay_id: string             // UUID as string
+  legs_hit: number
+  total_legs: number
+  result: 'WIN' | 'LOSS' | 'VOID'
+  profit: number
+  settled_at: string            // ISO 8601
+  notes: string | null
+}
+
+interface SignalBreakdown {
+  line_value?: Signal
+  trend?: Signal
+  usage?: Signal
+  matchup?: Signal
+  environment?: Signal
+  correlation?: Signal
+}
+
+interface Signal {
+  strength: number              // 0.0 to 1.0
+  confidence: number            // 0.0 to 1.0
+  evidence: string
+}
+```
+
 ### ParlayCard Props
 
 ```typescript
 interface ParlayCardProps {
-  parlay: {
-    id: string
-    parlay_type: string
-    game_date: string
-    home_team: string
-    away_team: string
-    combined_odds: number
-    implied_probability: number
-    thesis: string
-    nhl_sgp_legs: Leg[]
-    nhl_sgp_settlements?: Settlement[]
-  }
+  parlay: Parlay
   showSignals?: boolean
   onLegClick?: (leg: Leg) => void
 }
@@ -604,5 +689,20 @@ async function fetchParlays() {
 
 ---
 
-*Document Version: 1.0*
-*Last Updated: December 2025*
+*Document Version: 1.1*
+*Last Updated: December 14, 2025*
+
+---
+
+## Changelog
+
+### v1.1 (December 14, 2025)
+- **Data Types Fixed**: UUIDs now serialized as strings, Decimals as floats
+- **New Leg Fields**: Added `player_id`, `supporting_reasons`, `risk_factors`, `created_at`
+- **New Parlay Fields**: Added `updated_at`
+- **Settlement Notes**: Added `notes` field to settlements
+- **TypeScript Interfaces**: Added full interface definitions
+- **NULL Handling**: Fixed LEFT JOIN returning `[null]` instead of `[]` for empty legs
+
+### v1.0 (December 13, 2025)
+- Initial release

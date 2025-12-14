@@ -221,9 +221,12 @@ class SGPParlaySettlement:
         profit = self.calculate_profit(parlay['combined_odds'], parlay_result)
 
         # Create settlement record
+        # Convert parlay_id to UUID if it's a string (from JSON query)
+        parlay_id = uuid.UUID(parlay['id']) if isinstance(parlay['id'], str) else parlay['id']
+
         settlement = {
             'id': uuid.uuid4(),
-            'parlay_id': parlay['id'],
+            'parlay_id': parlay_id,
             'legs_hit': sum(1 for r in leg_results if r['result'] == 'WIN'),
             'total_legs': len([r for r in leg_results if r['result'] != 'VOID']),
             'result': parlay_result,
@@ -259,8 +262,13 @@ class SGPParlaySettlement:
         # Filter to unsettled (no settlement record yet)
         unsettled_parlays = []
         for p in parlays:
-            # Check if already settled by querying settlements
-            # For now, check if legs have results
+            # Check if already settled by querying settlements table
+            existing_settlement = self.db.get_settlement_for_parlay(p['id'])
+            if existing_settlement:
+                print(f"  Skipping {p['away_team']}@{p['home_team']}: already settled ({existing_settlement['result']})")
+                continue
+
+            # Also check legs have no results yet
             legs = p.get('legs', [])
             if legs and all(leg.get('result') is None for leg in legs):
                 unsettled_parlays.append(p)
@@ -298,9 +306,11 @@ class SGPParlaySettlement:
                 # Update legs
                 with self.db.Session() as session:
                     for lr in leg_results:
+                        # Convert string UUID to UUID object for query
+                        leg_uuid = uuid.UUID(lr['leg_id']) if isinstance(lr['leg_id'], str) else lr['leg_id']
                         session.execute(
                             self.db.nhl_sgp_legs_table.update().where(
-                                self.db.nhl_sgp_legs_table.c.id == lr['leg_id']
+                                self.db.nhl_sgp_legs_table.c.id == leg_uuid
                             ).values(
                                 actual_value=lr['actual_value'],
                                 result=lr['result'],

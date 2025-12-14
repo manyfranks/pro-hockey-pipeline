@@ -152,6 +152,10 @@ class NHLSGPGenerator:
                 'recent_avg': ctx.recent_avg if hasattr(ctx, 'recent_avg') else None,
                 'primary_reason': edge_result.primary_reason,
                 'signals': edge_result.signals,
+                # Player info from context
+                'team': ctx.team,
+                'position': ctx.position,
+                'player_id': ctx.player_id,
             }
         except Exception as e:
             return None
@@ -428,8 +432,9 @@ class NHLSGPGenerator:
                 'parlay_id': parlay_record['id'],
                 'leg_number': i,
                 'player_name': leg['player_name'],
+                'player_id': leg.get('player_id'),
                 'team': leg.get('team'),
-                'position': None,  # Could be enriched from roster data
+                'position': leg.get('position'),
                 'stat_type': leg['stat_type'],
                 'line': Decimal(str(leg['line'])),
                 'direction': 'over',  # We only bet overs currently

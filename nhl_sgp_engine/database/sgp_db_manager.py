@@ -410,27 +410,95 @@ class NHLSGPDBManager:
     # Query Operations
     # =========================================================================
 
+    def get_settlement_for_parlay(self, parlay_id: str) -> Optional[Dict]:
+        """Check if a parlay has been settled."""
+        with self.Session() as session:
+            # Convert string to UUID if needed
+            parlay_uuid = uuid.UUID(parlay_id) if isinstance(parlay_id, str) else parlay_id
+
+            result = session.execute(
+                self.nhl_sgp_settlements_table.select().where(
+                    self.nhl_sgp_settlements_table.c.parlay_id == parlay_uuid
+                )
+            )
+            row = result.fetchone()
+            if row:
+                return dict(row._mapping)
+            return None
+
+    def get_settlements_by_date(self, game_date: date) -> List[Dict]:
+        """Get all settlements for parlays on a specific date."""
+        with self.Session() as session:
+            result = session.execute(text("""
+                SELECT
+                    s.id::text as id,
+                    s.parlay_id::text as parlay_id,
+                    s.legs_hit,
+                    s.total_legs,
+                    s.result,
+                    s.profit::float,
+                    s.settled_at,
+                    s.notes,
+                    p.parlay_type,
+                    p.game_id,
+                    p.home_team,
+                    p.away_team,
+                    p.combined_odds
+                FROM nhl_sgp_settlements s
+                JOIN nhl_sgp_parlays p ON s.parlay_id = p.id
+                WHERE p.game_date = :game_date
+                ORDER BY s.settled_at DESC
+            """), {'game_date': game_date})
+
+            return [dict(row._mapping) for row in result]
+
     def get_parlays_by_date(self, game_date: date) -> List[Dict]:
         """Get all parlays for a specific date with legs."""
         with self.Session() as session:
             result = session.execute(text("""
                 SELECT
-                    p.*,
-                    json_agg(
-                        json_build_object(
-                            'id', l.id,
-                            'leg_number', l.leg_number,
-                            'player_name', l.player_name,
-                            'stat_type', l.stat_type,
-                            'line', l.line,
-                            'direction', l.direction,
-                            'odds', l.odds,
-                            'edge_pct', l.edge_pct,
-                            'confidence', l.confidence,
-                            'primary_reason', l.primary_reason,
-                            'signals', l.signals,
-                            'result', l.result
-                        ) ORDER BY l.leg_number
+                    p.id::text as id,
+                    p.parlay_type,
+                    p.game_id,
+                    p.game_date,
+                    p.home_team,
+                    p.away_team,
+                    p.game_slot,
+                    p.total_legs,
+                    p.combined_odds,
+                    p.implied_probability::float,
+                    p.thesis,
+                    p.season,
+                    p.season_type,
+                    p.created_at,
+                    p.updated_at,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'id', l.id::text,
+                                'leg_number', l.leg_number,
+                                'player_name', l.player_name,
+                                'player_id', l.player_id,
+                                'team', l.team,
+                                'position', l.position,
+                                'stat_type', l.stat_type,
+                                'line', l.line::float,
+                                'direction', l.direction,
+                                'odds', l.odds,
+                                'edge_pct', l.edge_pct::float,
+                                'confidence', l.confidence::float,
+                                'model_probability', l.model_probability::float,
+                                'market_probability', l.market_probability::float,
+                                'primary_reason', l.primary_reason,
+                                'supporting_reasons', l.supporting_reasons,
+                                'risk_factors', l.risk_factors,
+                                'signals', l.signals,
+                                'actual_value', l.actual_value::float,
+                                'result', l.result,
+                                'created_at', l.created_at
+                            ) ORDER BY l.leg_number
+                        ) FILTER (WHERE l.id IS NOT NULL),
+                        '[]'::json
                     ) as legs
                 FROM nhl_sgp_parlays p
                 LEFT JOIN nhl_sgp_legs l ON p.id = l.parlay_id
