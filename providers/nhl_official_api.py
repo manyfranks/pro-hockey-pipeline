@@ -232,6 +232,9 @@ class NHLOfficialAPI:
             'game_state': data.get('gameState'),
             'away_team': data.get('awayTeam', {}).get('abbrev'),
             'home_team': data.get('homeTeam', {}).get('abbrev'),
+            'away_score': data.get('awayTeam', {}).get('score', 0),
+            'home_score': data.get('homeTeam', {}).get('score', 0),
+            'total_goals': data.get('awayTeam', {}).get('score', 0) + data.get('homeTeam', {}).get('score', 0),
             'players': [],
         }
 
@@ -242,24 +245,31 @@ class NHLOfficialAPI:
             is_home = team_key == 'homeTeam'
 
             # Process forwards, defensemen, goalies
-            for position_group in ['forwards', 'defensemen', 'goalies']:
+            for position_group in ['forwards', 'defense', 'goalies']:
                 for player in team_data.get(position_group, []):
+                    goals = player.get('goals', 0)
+                    assists = player.get('assists', 0)
+                    pp_goals = player.get('powerPlayGoals', 0)
+
                     player_info = {
                         'player_id': player.get('playerId'),
                         'name': player.get('name', {}).get('default'),
                         'team': team_abbrev,
                         'is_home': is_home,
                         'position': player.get('position'),
-                        'goals': player.get('goals', 0),
-                        'assists': player.get('assists', 0),
-                        'points': player.get('goals', 0) + player.get('assists', 0),
+                        'goals': goals,
+                        'assists': assists,
+                        'points': goals + assists,
                         'toi': player.get('toi'),
-                        'shots': player.get('sog', player.get('shotsAgainst', 0)),
+                        'shots': player.get('sog', 0),
+                        'blocked_shots': player.get('blockedShots', 0),
+                        'hits': player.get('hits', 0),
                         'plus_minus': player.get('plusMinus', 0),
                         'pim': player.get('pim', 0),
-                        # Goalie-specific
-                        'saves': player.get('saveShotsAgainst', '').split('/')[0] if player.get('saveShotsAgainst') else None,
-                        'shots_against': player.get('saveShotsAgainst', '').split('/')[-1] if player.get('saveShotsAgainst') else None,
+                        'power_play_goals': pp_goals,
+                        # Goalie-specific (use direct 'saves' field)
+                        'saves': player.get('saves', 0),
+                        'shots_against': player.get('shotsAgainst', 0),
                     }
                     result['players'].append(player_info)
 

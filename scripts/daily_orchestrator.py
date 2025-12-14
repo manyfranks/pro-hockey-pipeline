@@ -7,6 +7,7 @@ Runs the complete daily workflow:
 1. Settlement - Settle yesterday's predictions against actual results
 2. Predictions - Generate today's predictions and save to database
 3. Insights - Generate rule-based and LLM-powered insights
+4. SGP Parlays - Generate multi-leg same-game parlays (aligned with NFL/NCAAF)
 
 Usage:
     # Run full pipeline for today
@@ -74,6 +75,7 @@ class DailyOrchestrator:
     1. Settlement (yesterday) - Must run first to update historical accuracy
     2. Predictions (today) - Generate new predictions with latest data
     3. Insights (today) - Generate insights based on new predictions
+    4. SGP Parlays (today) - Generate multi-leg same-game parlays
     """
 
     def __init__(self, dry_run: bool = False, force_refresh: bool = False):
@@ -85,6 +87,7 @@ class DailyOrchestrator:
             'predictions': None,
             'insights': None,
             'llm_insights': None,
+            'sgp': None,
             'errors': [],
         }
 
@@ -135,6 +138,12 @@ class DailyOrchestrator:
         print("STAGE 3: INSIGHTS GENERATION")
         print("-" * 80)
         self.results['insights'] = self._run_insights(target_date, include_llm)
+
+        # Stage 4: SGP Parlays
+        print("\n" + "-" * 80)
+        print("STAGE 4: SGP PARLAYS")
+        print("-" * 80)
+        self.results['sgp'] = self._run_sgp_pipeline(target_date, yesterday)
 
         # Final Summary
         self._print_summary()
@@ -267,6 +276,49 @@ class DailyOrchestrator:
             self.results['errors'].append(error_msg)
             return {'success': False, 'error': str(e)}
 
+    def _run_sgp_pipeline(self, target_date: date, settlement_date: date) -> Dict[str, Any]:
+        """
+        Run SGP parlay generation and settlement.
+
+        Stage 4 of the pipeline - generates multi-leg same-game parlays
+        aligned with NFL/NCAAF SGP architecture.
+        """
+        try:
+            from nhl_sgp_engine.scripts.daily_sgp_generator import NHLSGPGenerator
+            from nhl_sgp_engine.scripts.settle_sgp_parlays import SGPParlaySettlement
+
+            result = {
+                'settlement': None,
+                'generation': None,
+            }
+
+            # Step 1: Settle yesterday's parlays
+            print("\n[SGP] Settling yesterday's parlays...")
+            settler = SGPParlaySettlement()
+            settlement_result = settler.run(game_date=settlement_date)
+            result['settlement'] = settlement_result
+
+            print(f"  Parlays settled: {settlement_result.get('settled', 0)}")
+            print(f"  Win rate: {settlement_result.get('win_rate', 0):.1f}%")
+            print(f"  Profit: ${settlement_result.get('profit', 0):.2f}")
+
+            # Step 2: Generate today's parlays
+            print("\n[SGP] Generating today's parlays...")
+            generator = NHLSGPGenerator()
+            generation_result = generator.run(game_date=target_date, dry_run=self.dry_run)
+            result['generation'] = generation_result
+
+            print(f"  Parlays generated: {generation_result.get('parlays', 0)}")
+            print(f"  Total legs: {generation_result.get('total_legs', 0)}")
+
+            return {'success': True, 'result': result}
+
+        except Exception as e:
+            error_msg = f"SGP pipeline failed: {e}"
+            logger.error(error_msg)
+            self.results['errors'].append(error_msg)
+            return {'success': False, 'error': str(e)}
+
     def _print_summary(self):
         """Print final pipeline summary."""
         print("\n" + "=" * 80)
@@ -297,6 +349,16 @@ class DailyOrchestrator:
         else:
             print(f"Insights: FAILED - {insights.get('error', 'Unknown error')}")
 
+        # SGP Parlays
+        sgp = self.results.get('sgp', {})
+        if sgp.get('success'):
+            sgp_result = sgp.get('result', {})
+            gen = sgp_result.get('generation', {})
+            settle = sgp_result.get('settlement', {})
+            print(f"SGP Parlays: OK - {gen.get('parlays', 0)} generated, {settle.get('settled', 0)} settled")
+        else:
+            print(f"SGP Parlays: FAILED - {sgp.get('error', 'Unknown error')}")
+
         # Errors
         if self.results['errors']:
             print(f"\nErrors: {len(self.results['errors'])}")
@@ -308,6 +370,7 @@ class DailyOrchestrator:
             self.results.get('settlement', {}).get('success', False),
             self.results.get('predictions', {}).get('success', False),
             self.results.get('insights', {}).get('success', False),
+            self.results.get('sgp', {}).get('success', False),
         ])
 
         print("\n" + "=" * 80)
