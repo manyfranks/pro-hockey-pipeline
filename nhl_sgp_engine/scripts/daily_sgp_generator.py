@@ -19,10 +19,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import argparse
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 from decimal import Decimal
 from collections import defaultdict
+from zoneinfo import ZoneInfo
 
 from nhl_sgp_engine.providers.odds_api_client import OddsAPIClient
 from nhl_sgp_engine.providers.context_builder import PropContextBuilder
@@ -176,12 +177,17 @@ class NHLSGPGenerator:
             return {}
 
         # Filter to today's games
+        # NOTE: Odds API returns commence_time in UTC. Evening games (7 PM ET)
+        # are midnight UTC next day. Convert to ET for proper date matching.
+        et_tz = ZoneInfo('America/New_York')
         todays_events = []
         for event in events:
             commence_time = event.get('commence_time', '')
             if commence_time:
-                game_dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
-                if game_dt.date() == game_date:
+                # Parse UTC time and convert to Eastern
+                utc_dt = datetime.fromisoformat(commence_time.replace('Z', '+00:00'))
+                et_dt = utc_dt.astimezone(et_tz)
+                if et_dt.date() == game_date:
                     todays_events.append(event)
 
         print(f"[SGP Generator] Found {len(todays_events)} games today")
