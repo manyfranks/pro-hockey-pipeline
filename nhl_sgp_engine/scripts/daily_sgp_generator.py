@@ -31,6 +31,7 @@ from nhl_sgp_engine.providers.nhl_data_provider import NHLDataProvider, normaliz
 from nhl_sgp_engine.edge_detection.edge_calculator import EdgeCalculator
 from nhl_sgp_engine.database.sgp_db_manager import NHLSGPDBManager
 from nhl_sgp_engine.config.markets import MARKET_TO_STAT_TYPE
+from nhl_sgp_engine.analytics.thesis_generator import ThesisGenerator
 
 
 # =============================================================================
@@ -56,12 +57,13 @@ MAX_LEGS_PER_PLAYER = 1  # Avoid overloading one player
 class NHLSGPGenerator:
     """Generate multi-leg SGP parlays for NHL games."""
 
-    def __init__(self):
+    def __init__(self, use_llm_thesis: bool = True):
         self.odds_client = OddsAPIClient()
         self.context_builder = PropContextBuilder()
         self.nhl_provider = NHLDataProvider()
         self.edge_calculator = EdgeCalculator()
         self.db = NHLSGPDBManager()
+        self.thesis_generator = ThesisGenerator(use_llm=use_llm_thesis)
 
     def _american_to_prob(self, odds: int) -> float:
         """Convert American odds to implied probability."""
@@ -328,44 +330,8 @@ class NHLSGPGenerator:
         return actionable_by_game
 
     def generate_thesis(self, game_data: Dict, legs: List[Dict]) -> str:
-        """Generate a narrative thesis for the parlay."""
-        home = game_data['home_team']
-        away = game_data['away_team']
-
-        # Analyze leg composition
-        stat_types = [leg['stat_type'] for leg in legs]
-        teams = [leg.get('team', 'UNK') for leg in legs]
-        avg_edge = sum(leg['edge_pct'] for leg in legs) / len(legs)
-
-        # Build thesis based on composition
-        thesis_parts = []
-
-        # Check for offensive theme
-        if stat_types.count('points') >= 2:
-            thesis_parts.append(f"Offensive-focused parlay targeting point production")
-
-        # Check for shooting theme
-        if stat_types.count('shots_on_goal') >= 2:
-            thesis_parts.append(f"High-volume shooting game expected")
-
-        # Check for team stack
-        team_counts = defaultdict(int)
-        for t in teams:
-            team_counts[t] += 1
-        stacked_team = max(team_counts.keys(), key=lambda x: team_counts[x])
-        if team_counts[stacked_team] >= 2:
-            thesis_parts.append(f"Stacking {stacked_team} players")
-
-        # Add edge summary
-        thesis_parts.append(f"Average edge: {avg_edge:.1f}%")
-
-        # Add primary reasons from top legs
-        top_reasons = [leg['primary_reason'] for leg in sorted(legs, key=lambda x: x['edge_pct'], reverse=True)[:2]]
-        for reason in top_reasons:
-            if reason:
-                thesis_parts.append(reason)
-
-        return " | ".join(thesis_parts)
+        """Generate a narrative thesis for the parlay using LLM."""
+        return self.thesis_generator.generate_thesis(game_data, legs)
 
     def select_parlay_legs(self, actionable_props: List[Dict]) -> List[Dict]:
         """
@@ -572,11 +538,13 @@ def main():
     parser = argparse.ArgumentParser(description='Generate NHL SGP parlays')
     parser.add_argument('--date', type=str, help='Date (YYYY-MM-DD), default: today')
     parser.add_argument('--dry-run', action='store_true', help='Do not write to database')
+    parser.add_argument('--no-llm', action='store_true', help='Disable LLM thesis generation (use rule-based)')
     args = parser.parse_args()
 
     game_date = date.fromisoformat(args.date) if args.date else date.today()
 
-    generator = NHLSGPGenerator()
+    use_llm = not args.no_llm
+    generator = NHLSGPGenerator(use_llm_thesis=use_llm)
     result = generator.run(game_date=game_date, dry_run=args.dry_run)
 
     print(f"\n[SGP Generator] Complete: {result['parlays']} parlays for {result['game_date']}")
