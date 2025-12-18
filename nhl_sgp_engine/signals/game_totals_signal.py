@@ -13,15 +13,17 @@ Uses: NHL Official API team stats, goalie data
 from typing import Dict, Any, Optional
 from .base import BaseSignal, SignalResult, PropContext
 
-# Import NHL API
+# Import NHL API and team normalization
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 try:
     from providers.nhl_official_api import NHLOfficialAPI
+    from nhl_sgp_engine.providers.nhl_data_provider import normalize_team
     HAS_NHL_API = True
 except ImportError:
     HAS_NHL_API = False
+    def normalize_team(t): return t  # Fallback
 
 
 class GameTotalsSignal(BaseSignal):
@@ -60,10 +62,13 @@ class GameTotalsSignal(BaseSignal):
     def signal_type(self) -> str:
         return "game_totals"
 
-    def _get_team_scoring_stats(self, team_abbrev: str) -> Optional[Dict]:
+    def _get_team_scoring_stats(self, team_name: str) -> Optional[Dict]:
         """Get team's scoring statistics."""
-        if not self._nhl_api or not team_abbrev:
+        if not self._nhl_api or not team_name:
             return None
+
+        # Normalize team name to abbreviation (e.g., "Boston Bruins" -> "BOS")
+        team_abbrev = normalize_team(team_name)
 
         # Check cache
         if team_abbrev in self._team_cache:

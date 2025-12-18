@@ -438,6 +438,172 @@ class OddsAPIClient:
             'last_cost': self.usage.last_request_cost,
         }
 
+    # =========================================================================
+    # Game-Level Markets (totals, spreads, h2h)
+    # =========================================================================
+
+    def get_current_game_odds(
+        self,
+        markets: List[str] = None,
+        regions: List[str] = None,
+        bookmakers: List[str] = None,
+    ) -> List[Dict]:
+        """
+        Get current game-level odds (totals, spreads, h2h) for NHL.
+
+        Args:
+            markets: List of market keys (e.g., ['totals', 'spreads', 'h2h'])
+            regions: List of regions (e.g., ['us'])
+            bookmakers: Optional list of specific bookmakers
+
+        Returns:
+            List of event objects with game-level odds
+        """
+        markets = markets or ['totals', 'spreads', 'h2h']
+        regions = regions or REGIONS
+
+        params = {
+            'regions': ','.join(regions),
+            'markets': ','.join(markets),
+            'oddsFormat': 'american',
+        }
+        if bookmakers:
+            params['bookmakers'] = ','.join(bookmakers)
+
+        data, _ = self._make_request(f"sports/{self.sport}/odds", params)
+        return data
+
+    def get_historical_game_odds(
+        self,
+        event_id: str,
+        date_str: str,
+        markets: List[str] = None,
+        regions: List[str] = None,
+        use_cache: bool = True,
+    ) -> Dict:
+        """
+        Get historical game-level odds for a specific event.
+
+        Args:
+            event_id: Historical event ID
+            date_str: Snapshot date in YYYY-MM-DD format
+            markets: List of market keys (default: ['totals', 'spreads', 'h2h'])
+            regions: List of regions
+
+        Returns:
+            Event odds snapshot with game-level markets
+        """
+        markets = markets or ['totals', 'spreads', 'h2h']
+        regions = regions or REGIONS
+
+        markets_str = '_'.join(sorted(markets))
+        cache_key = f"hist_game_odds_{event_id}_{date_str}_{markets_str}"
+
+        if use_cache:
+            cached = self._read_cache(cache_key)
+            if cached:
+                return cached
+
+        # Pre-game snapshot (6 hours before typical game time)
+        snapshot_time = f"{date_str}T18:00:00Z"
+
+        params = {
+            'regions': ','.join(regions),
+            'markets': ','.join(markets),
+            'oddsFormat': 'american',
+            'date': snapshot_time,
+        }
+
+        data, _ = self._make_request(
+            f"historical/sports/{self.sport}/events/{event_id}/odds",
+            params
+        )
+
+        # Cache the response
+        self._write_cache(cache_key, data)
+
+        return data
+
+    def parse_game_totals(
+        self,
+        event_data: Dict,
+        bookmaker: str = None,
+    ) -> List[Dict]:
+        """
+        Parse game totals from event odds response.
+
+        Args:
+            event_data: Event odds response from API
+            bookmaker: Filter to specific bookmaker (default: first available)
+
+        Returns:
+            List of game total prop dicts with line, over_price, under_price
+        """
+        totals = []
+        event_id = event_data.get('id', '')
+        home_team = event_data.get('home_team', '')
+        away_team = event_data.get('away_team', '')
+        commence_time = event_data.get('commence_time', '')
+        snapshot_time = event_data.get('timestamp', datetime.utcnow().isoformat())
+
+        bookmakers_data = event_data.get('bookmakers', [])
+
+        # Filter or select bookmaker
+        selected_bm = None
+        if bookmaker:
+            selected_bm = next((b for b in bookmakers_data if b.get('key') == bookmaker), None)
+        if not selected_bm and bookmakers_data:
+            # Prefer draftkings, then fanduel, then first available
+            for preferred in ['draftkings', 'fanduel']:
+                selected_bm = next((b for b in bookmakers_data if b.get('key') == preferred), None)
+                if selected_bm:
+                    break
+            if not selected_bm:
+                selected_bm = bookmakers_data[0]
+
+        if not selected_bm:
+            return totals
+
+        for market in selected_bm.get('markets', []):
+            if market.get('key') != 'totals':
+                continue
+
+            outcomes = market.get('outcomes', [])
+
+            # Group Over and Under by line
+            lines = {}
+            for outcome in outcomes:
+                name = outcome.get('name', '').lower()
+                point = outcome.get('point', 0)
+                price = outcome.get('price', 0)
+
+                if point not in lines:
+                    lines[point] = {'line': point, 'over_price': None, 'under_price': None}
+
+                if name == 'over':
+                    lines[point]['over_price'] = price
+                elif name == 'under':
+                    lines[point]['under_price'] = price
+
+            # Create total prop for each line
+            for line_data in lines.values():
+                if line_data['over_price'] and line_data['under_price']:
+                    totals.append({
+                        'event_id': event_id,
+                        'home_team': home_team,
+                        'away_team': away_team,
+                        'commence_time': commence_time,
+                        'stat_type': 'totals',
+                        'market_key': 'totals',
+                        'line': line_data['line'],
+                        'over_price': line_data['over_price'],
+                        'under_price': line_data['under_price'],
+                        'bookmaker': selected_bm.get('key', ''),
+                        'snapshot_time': snapshot_time,
+                    })
+
+        return totals
+
     def test_connection(self) -> Dict:
         """
         Test API connection and return status.

@@ -76,7 +76,14 @@ TIER3_MARKETS = ['player_blocked_shots']  # Lower priority
 # Game-level markets (separate workflow from player props)
 # NOTE: Game totals use GameTotalsSignal for expected total calculation
 # Fetched via /v4/sports/{sport}/odds (not player props endpoint)
+# VALIDATED Dec 18, 2025: 87.5% hit rate at 10-15% edge (FOLLOW model direction!)
 GAME_LEVEL_MARKETS = ['totals', 'spreads', 'h2h']
+
+# Game totals production filters (validated Dec 18, 2025 - 364 games)
+# KEY INSIGHT: Game totals show OPPOSITE behavior to player props
+# Higher edge = BETTER outcomes (no contrarian needed!)
+GAME_TOTALS_OPTIMAL_EDGE = (10.0, 15.0)  # 87.5% hit rate bucket
+GAME_TOTALS_MIN_EDGE = 5.0               # Minimum edge to consider
 
 # WARNING: player_goals at 0.5 lines should be excluded from SGP
 # - The market is structurally biased (most players don't score every game)
