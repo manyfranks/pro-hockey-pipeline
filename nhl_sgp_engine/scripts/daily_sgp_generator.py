@@ -35,18 +35,30 @@ from nhl_sgp_engine.analytics.thesis_generator import ThesisGenerator
 
 
 # =============================================================================
-# Production Filters (validated by November backtest)
+# Production Filters (validated by Dec 18, 2025 backtest - 75,451 props)
+# KEY INSIGHT: Higher model edge = WORSE outcomes (inverted relationship)
+# SOLUTION: Contrarian mode - fade predictions when edge > 15%
+# RESULTS: 88.8% hit rate on contrarian props, 60.6% overall (excl. goals)
 # =============================================================================
 
-# Markets validated with positive edge correlation
+# Markets validated with contrarian mode (Dec 18, 2025 backtest - 75,451 props)
+# Contrarian = fade high-edge predictions (bet opposite when edge > threshold)
 VALIDATED_MARKETS = [
-    'player_points',        # 46.0% hit rate at 10-15% edge
-    'player_shots_on_goal', # 50.1% hit rate
+    'player_points',        # 56.2% contrarian hit rate
+    'player_shots_on_goal', # 62.4% contrarian hit rate (BEST)
+    'player_assists',       # 64.1% contrarian hit rate
+    'player_total_saves',   # 63.2% negative edge hit rate (947 props)
+    # NOTE: player_goals EXCLUDED - 0.5 lines structurally biased (97.5% UNDER)
 ]
 
-# Edge thresholds (10-15% bucket showed 49.6% hit rate)
-MIN_EDGE_PCT = 10.0
-MAX_EDGE_PCT = 25.0
+# Contrarian threshold - fade predictions when model edge exceeds this value
+# Backtest: 15% threshold = 88.8% hit rate on faded props
+CONTRARIAN_THRESHOLD = 15.0
+
+# Edge thresholds for NON-contrarian props (when edge < threshold)
+# These props follow model direction normally
+MIN_EDGE_PCT = 3.0   # Minimum edge to consider
+MAX_EDGE_PCT = 15.0  # Props above this get faded by contrarian logic
 
 # Parlay configuration
 MIN_LEGS_PER_PARLAY = 3
@@ -61,7 +73,8 @@ class NHLSGPGenerator:
         self.odds_client = OddsAPIClient()
         self.context_builder = PropContextBuilder()
         self.nhl_provider = NHLDataProvider()
-        self.edge_calculator = EdgeCalculator()
+        # Enable contrarian mode - fade high-edge predictions (validated Dec 18 backtest)
+        self.edge_calculator = EdgeCalculator(contrarian_threshold=CONTRARIAN_THRESHOLD)
         self.db = NHLSGPDBManager()
         self.thesis_generator = ThesisGenerator(use_llm=use_llm_thesis)
 
@@ -145,12 +158,15 @@ class NHLSGPGenerator:
             model_prob_over = edge_result.model_probability if edge_result.direction == 'over' else 1 - edge_result.model_probability
             over_edge = (model_prob_over - over_prob) * 100
 
+            # Use the edge_result direction (which accounts for contrarian logic)
             return {
-                'edge_pct': over_edge,
-                'model_probability': model_prob_over,
-                'market_probability': over_prob,
+                'edge_pct': edge_result.edge_pct,
+                'model_probability': edge_result.model_probability,
+                'market_probability': edge_result.market_probability,
                 'confidence': edge_result.confidence,
-                'direction': 'over' if over_edge > 0 else 'under',
+                'direction': edge_result.direction,
+                'contrarian_applied': edge_result.contrarian_applied,
+                'original_direction': edge_result.original_direction,
                 'season_avg': ctx.season_avg,
                 'recent_avg': ctx.recent_avg if hasattr(ctx, 'recent_avg') else None,
                 'primary_reason': edge_result.primary_reason,
@@ -312,7 +328,9 @@ class NHLSGPGenerator:
                 edge_pct = edge_data['edge_pct']
 
                 # Apply production filters
-                if edge_pct < MIN_EDGE_PCT or edge_pct > MAX_EDGE_PCT:
+                # With contrarian mode, EdgeCalculator already flips direction for high-edge props
+                # We want props with meaningful edge (either direction)
+                if abs(edge_pct) < MIN_EDGE_PCT:
                     continue
 
                 # Merge prop data with edge data
@@ -399,6 +417,11 @@ class NHLSGPGenerator:
 
         leg_records = []
         for i, leg in enumerate(legs, 1):
+            # Build primary reason - indicate if contrarian logic was applied
+            reason = leg['primary_reason']
+            if leg.get('contrarian_applied'):
+                reason = f"[CONTRARIAN] Faded {leg.get('original_direction', 'N/A').upper()} → {leg['direction'].upper()}: {reason}"
+
             leg_record = {
                 'id': uuid.uuid4(),
                 'parlay_id': parlay_record['id'],
@@ -409,16 +432,17 @@ class NHLSGPGenerator:
                 'position': leg.get('position'),
                 'stat_type': leg['stat_type'],
                 'line': Decimal(str(leg['line'])),
-                'direction': 'over',  # We only bet overs currently
+                'direction': leg['direction'],  # Now uses contrarian-adjusted direction
                 'odds': leg['odds'],
                 'edge_pct': Decimal(str(round(leg['edge_pct'], 2))),
                 'confidence': Decimal(str(round(leg['confidence'], 2))),
                 'model_probability': Decimal(str(round(leg['model_probability'], 4))),
                 'market_probability': Decimal(str(round(leg['market_probability'], 4))),
-                'primary_reason': leg['primary_reason'],
+                'primary_reason': reason,
                 'supporting_reasons': [],
                 'risk_factors': [],
                 'signals': leg.get('signals', {}),
+                # NOTE: contrarian_applied tracked in primary_reason prefix "[CONTRARIAN]"
             }
             leg_records.append(leg_record)
 
@@ -496,7 +520,9 @@ class NHLSGPGenerator:
             print(f"Thesis: {parlay['thesis'][:80]}...")
             print("-" * 50)
             for leg in legs:
-                print(f"  {leg['leg_number']}. {leg['player_name']} {leg['stat_type']} O{leg['line']} ({leg['odds']:+d}) | Edge: {leg['edge_pct']}%")
+                direction_char = 'O' if leg['direction'] == 'over' else 'U'
+                contrarian_tag = " [C]" if leg.get('contrarian_applied') else ""
+                print(f"  {leg['leg_number']}. {leg['player_name']} {leg['stat_type']} {direction_char}{leg['line']} ({leg['odds']:+d}) | Edge: {leg['edge_pct']}%{contrarian_tag}")
 
         # Save to database
         if not dry_run and all_parlays:

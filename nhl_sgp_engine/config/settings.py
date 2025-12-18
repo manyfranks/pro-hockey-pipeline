@@ -41,14 +41,20 @@ ELITE_EDGE_PCT = 12.0        # Elite edge threshold
 MIN_CONFIDENCE = 0.60        # Minimum confidence to include
 HIGH_CONFIDENCE = 0.75       # High confidence threshold
 
-# Signal Weights (matching NCAAF pattern with NHL adaptations)
+# Signal Weights (optimized based on Dec 18, 2025 backtest - 75,451 props)
+# Predictive value = |positive_hit_rate - negative_hit_rate|
+# NOTE: These weights are used WITH contrarian mode (threshold=15.0)
+# The inverted edge relationship means signal DIRECTION matters more than magnitude
 SIGNAL_WEIGHTS = {
-    'line_value': 0.35,      # Season avg vs prop line (primary)
-    'trend': 0.15,           # Recent form vs season
-    'usage': 0.10,           # TOI/PP changes
-    'matchup': 0.15,         # Goalie quality, team defense
-    'environment': 0.15,     # B2B, rest, travel
-    'correlation': 0.10,     # Game total/spread impact
+    'environment': 0.24,     # B2B, rest, travel (61.0% predictive - HIGHEST!)
+    'usage': 0.19,           # TOI/PP/line deployment (24.5% predictive)
+    'line_value': 0.15,      # Season avg vs prop line (20.0% predictive)
+    'matchup': 0.10,         # Goalie quality, team defense (5.1% predictive)
+    'shot_quality': 0.08,    # NHL Edge API - shot speed, HD%, zone deployment (NEW)
+    'goalie_saves': 0.08,    # NHL Edge API - goalie saves props (VALIDATED 63.2%)
+    'game_totals': 0.08,     # Game total O/U signal (NEW - needs backtest)
+    'correlation': 0.04,     # Game total/spread impact (2.8% predictive)
+    'trend': 0.04,           # Recent form vs season (0.7% predictive - nearly useless)
 }
 
 # Parlay Configuration

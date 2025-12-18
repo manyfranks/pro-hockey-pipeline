@@ -535,6 +535,428 @@ class NHLOfficialAPI:
         }
 
     # =========================================================================
+    # NHL EDGE DATA - Advanced Analytics
+    # =========================================================================
+
+    def get_goalie_edge_detail(self, player_id: int) -> Optional[Dict]:
+        """
+        Get advanced goalie metrics from NHL Edge API.
+
+        Includes: GAA, games above .900, goal differential per 60,
+        goal support average, point percentage, shot location breakdown.
+
+        Args:
+            player_id: NHL goalie ID
+
+        Returns:
+            Dict with Edge analytics or None
+        """
+        cache_key = f"goalie_edge_detail_{player_id}"
+
+        data = self._api_get(
+            f"/v1/edge/goalie-detail/{player_id}/now",
+            cache_key,
+            ttl_hours=4
+        )
+
+        if not data:
+            return None
+
+        # Extract key metrics
+        result = {
+            'player_id': data.get('playerId'),
+            'name': f"{data.get('firstName', {}).get('default', '')} {data.get('lastName', {}).get('default', '')}".strip(),
+        }
+
+        # Season data
+        season_data = data.get('seasonData', [])
+        if season_data:
+            current = season_data[0] if season_data else {}
+            result['wins'] = current.get('wins', 0)
+            result['losses'] = current.get('losses', 0)
+            result['gaa'] = current.get('goalsAgainstAvg', 0)
+            result['save_pct'] = current.get('savePctg', 0)
+            result['games_above_900'] = current.get('gamesAbove900', 0)
+            result['goal_diff_per_60'] = current.get('goalDiffPer60', 0)
+            result['goal_support_avg'] = current.get('goalSupportAvg', 0)
+            result['point_pct'] = current.get('pointPctg', 0)
+
+        # Shot location breakdown (high danger is key for matchup signal)
+        shot_locations = data.get('shotLocationSummary', [])
+        for loc in shot_locations:
+            loc_code = loc.get('locationCode', '')
+            if loc_code == 'high':  # High danger
+                result['high_danger_sv_pct'] = loc.get('savePctg', 0)
+                result['high_danger_saves'] = loc.get('saves', 0)
+            elif loc_code == 'all':
+                result['total_saves'] = loc.get('saves', 0)
+
+        return result
+
+    def get_goalie_edge_comparison(self, player_id: int) -> Optional[Dict]:
+        """
+        Get goalie comparison data with recent form (last 10 games).
+
+        Critical for matchup signal - shows if goalie is hot/cold recently.
+
+        Args:
+            player_id: NHL goalie ID
+
+        Returns:
+            Dict with recent form and 5v5 stats
+        """
+        cache_key = f"goalie_edge_comparison_{player_id}"
+
+        data = self._api_get(
+            f"/v1/edge/goalie-comparison/{player_id}/now",
+            cache_key,
+            ttl_hours=4
+        )
+
+        if not data:
+            return None
+
+        result = {
+            'player_id': data.get('playerId'),
+            'name': f"{data.get('firstName', {}).get('default', '')} {data.get('lastName', {}).get('default', '')}".strip(),
+        }
+
+        # Last 10 games data - key for recent form
+        # savePctgLast10 is an array of game objects, each with 'savePctg'
+        last_10_games = data.get('savePctgLast10', [])
+        if last_10_games and isinstance(last_10_games, list):
+            sv_pcts = [g.get('savePctg', 0) for g in last_10_games if g.get('savePctg')]
+            result['l10_games'] = len(sv_pcts)
+            result['l10_save_pct'] = sum(sv_pcts) / len(sv_pcts) if sv_pcts else 0
+
+            # Last 5 games for more recent trend
+            l5_sv_pcts = sv_pcts[:5] if len(sv_pcts) >= 5 else sv_pcts
+            result['l5_avg_sv_pct'] = sum(l5_sv_pcts) / len(l5_sv_pcts) if l5_sv_pcts else 0
+            result['l10_details'] = last_10_games
+
+        # 5v5 save percentage (removes PP/PK variance)
+        fivev5_details = data.get('savePctg5v5Details', {})
+        if fivev5_details:
+            result['5v5_save_pct'] = fivev5_details.get('savePctg', 0)
+            result['5v5_shots'] = fivev5_details.get('shots', 0)
+
+        # 5v5 last 10 games (array format like savePctgLast10)
+        fivev5_l10 = data.get('savePctg5v5Last10', [])
+        if fivev5_l10 and isinstance(fivev5_l10, list):
+            sv_pcts_5v5 = [g.get('savePctg', 0) for g in fivev5_l10 if g.get('savePctg')]
+            result['5v5_l10_save_pct'] = sum(sv_pcts_5v5) / len(sv_pcts_5v5) if sv_pcts_5v5 else 0
+
+        # Overall save % details
+        sv_details = data.get('savePctgDetails', {})
+        if sv_details:
+            result['games_above_900'] = sv_details.get('gamesAbove900', 0)
+            result['pct_games_above_900'] = sv_details.get('pctgGamesAbove900', 0)
+            result['gaa'] = sv_details.get('goalsAgainstAvg', 0)
+            result['season_save_pct'] = sv_details.get('savePctg', 0)
+
+        return result
+
+    def get_goalie_recent_form(self, player_id: int) -> Dict:
+        """
+        Get goalie recent form summary for matchup signal.
+
+        Combines Edge data to provide a simple hot/cold assessment.
+
+        Returns:
+            Dict with:
+            - recent_save_pct: Last 10 games SV%
+            - season_save_pct: Full season SV%
+            - form_delta: recent - season (positive = hot)
+            - high_danger_sv_pct: High danger save %
+            - 5v5_save_pct: Even strength save %
+            - form_assessment: 'HOT', 'COLD', or 'NEUTRAL'
+        """
+        detail = self.get_goalie_edge_detail(player_id)
+        comparison = self.get_goalie_edge_comparison(player_id)
+
+        result = {
+            'player_id': player_id,
+            'recent_save_pct': 0,
+            'season_save_pct': 0,
+            'form_delta': 0,
+            'high_danger_sv_pct': 0,
+            '5v5_save_pct': 0,
+            'form_assessment': 'NEUTRAL',
+            'games_above_900': 0,
+        }
+
+        if detail:
+            result['season_save_pct'] = detail.get('save_pct', 0)
+            result['high_danger_sv_pct'] = detail.get('high_danger_sv_pct', 0)
+            result['games_above_900'] = detail.get('games_above_900', 0)
+            result['gaa'] = detail.get('gaa', 0)
+
+        if comparison:
+            result['recent_save_pct'] = comparison.get('l10_save_pct', 0)
+            result['5v5_save_pct'] = comparison.get('5v5_save_pct', 0)
+
+            # Calculate form delta
+            if result['season_save_pct'] > 0 and result['recent_save_pct'] > 0:
+                result['form_delta'] = result['recent_save_pct'] - result['season_save_pct']
+
+                # Assess form (0.015 = 1.5% swing is significant)
+                if result['form_delta'] > 0.015:
+                    result['form_assessment'] = 'HOT'
+                elif result['form_delta'] < -0.015:
+                    result['form_assessment'] = 'COLD'
+
+        return result
+
+    # =========================================================================
+    # SKATER EDGE ENDPOINTS (NHL Advanced Analytics)
+    # Added: December 18, 2025
+    # These endpoints provide tracking data like zone time, shot speed, etc.
+    # =========================================================================
+
+    def get_skater_edge_detail(self, player_id: int) -> Optional[Dict]:
+        """
+        Get advanced skater metrics from NHL Edge API.
+
+        Includes: top shot speed, skating speed, distance skated,
+        shot on goal summary/details, zone time percentages.
+
+        Args:
+            player_id: NHL player ID
+
+        Returns:
+            Dict with Edge metrics or None if unavailable
+        """
+        cache_key = f"skater_edge_detail_{player_id}"
+        data = self._api_get(
+            f"/v1/edge/skater-detail/{player_id}/now",
+            cache_key,
+            ttl_hours=4
+        )
+
+        if not data:
+            return None
+
+        result = {
+            'player_id': player_id,
+            'top_shot_speed': 0,
+            'avg_shot_speed': 0,
+            'top_skating_speed': 0,
+            'avg_skating_speed': 0,
+            'distance_skated': 0,
+            'offensive_zone_time_pct': 0,
+            'defensive_zone_time_pct': 0,
+            'neutral_zone_time_pct': 0,
+            'high_danger_shots': 0,
+            'mid_range_shots': 0,
+            'long_range_shots': 0,
+        }
+
+        try:
+            # Shot speed data
+            shot_speed = data.get('shotSpeedSummary', {})
+            result['top_shot_speed'] = shot_speed.get('topSpeed', 0)
+            result['avg_shot_speed'] = shot_speed.get('avgSpeed', 0)
+
+            # Skating speed data
+            skating_speed = data.get('skatingSpeedSummary', {})
+            result['top_skating_speed'] = skating_speed.get('topSpeed', 0)
+            result['avg_skating_speed'] = skating_speed.get('avgSpeed', 0)
+
+            # Distance
+            distance = data.get('skatingDistanceSummary', {})
+            result['distance_skated'] = distance.get('total', 0)
+
+            # Zone time
+            zone_time = data.get('zoneTimeSummary', {})
+            result['offensive_zone_time_pct'] = zone_time.get('offensivePct', 0)
+            result['defensive_zone_time_pct'] = zone_time.get('defensivePct', 0)
+            result['neutral_zone_time_pct'] = zone_time.get('neutralPct', 0)
+
+            # Shot location breakdown
+            shot_location = data.get('shotLocationSummary', {})
+            result['high_danger_shots'] = shot_location.get('highDanger', 0)
+            result['mid_range_shots'] = shot_location.get('midRange', 0)
+            result['long_range_shots'] = shot_location.get('longRange', 0)
+
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error parsing skater edge detail for {player_id}: {e}")
+
+        return result
+
+    def get_skater_zone_time(self, player_id: int) -> Optional[Dict]:
+        """
+        Get skater zone time details by situation.
+
+        Critical for understanding offensive opportunity generation.
+
+        Args:
+            player_id: NHL player ID
+
+        Returns:
+            Dict with zone time by situation (5v5, PP, PK) or None
+        """
+        cache_key = f"skater_zone_time_{player_id}"
+        data = self._api_get(
+            f"/v1/edge/skater-zone-time/{player_id}/now",
+            cache_key,
+            ttl_hours=4
+        )
+
+        if not data:
+            return None
+
+        result = {
+            'player_id': player_id,
+            # All situations
+            'all_offensive_pct': 0,
+            'all_defensive_pct': 0,
+            # Even strength
+            'es_offensive_pct': 0,
+            'es_defensive_pct': 0,
+            # Power play
+            'pp_offensive_pct': 0,
+            # Zone starts
+            'offensive_zone_starts_pct': 0,
+            'defensive_zone_starts_pct': 0,
+        }
+
+        try:
+            # All situations
+            all_sit = data.get('allSituations', {})
+            result['all_offensive_pct'] = all_sit.get('offensivePct', 0)
+            result['all_defensive_pct'] = all_sit.get('defensivePct', 0)
+
+            # Even strength
+            es = data.get('evenStrength', {})
+            result['es_offensive_pct'] = es.get('offensivePct', 0)
+            result['es_defensive_pct'] = es.get('defensivePct', 0)
+
+            # Power play
+            pp = data.get('powerPlay', {})
+            result['pp_offensive_pct'] = pp.get('offensivePct', 0)
+
+            # Zone starts
+            starts = data.get('zoneStarts', {})
+            result['offensive_zone_starts_pct'] = starts.get('offensivePct', 0)
+            result['defensive_zone_starts_pct'] = starts.get('defensivePct', 0)
+
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error parsing skater zone time for {player_id}: {e}")
+
+        return result
+
+    def get_skater_shot_speed_detail(self, player_id: int) -> Optional[Dict]:
+        """
+        Get skater shot speed details.
+
+        Important for goals props - harder shots = more goals.
+
+        Args:
+            player_id: NHL player ID
+
+        Returns:
+            Dict with shot speed breakdown or None
+        """
+        cache_key = f"skater_shot_speed_{player_id}"
+        data = self._api_get(
+            f"/v1/edge/skater-shot-speed-detail/{player_id}/now",
+            cache_key,
+            ttl_hours=4
+        )
+
+        if not data:
+            return None
+
+        result = {
+            'player_id': player_id,
+            'top_shot_speed': 0,
+            'avg_shot_speed': 0,
+            'shots_100plus': 0,
+            'shots_90_100': 0,
+            'shots_80_90': 0,
+            'shots_70_80': 0,
+        }
+
+        try:
+            result['top_shot_speed'] = data.get('topShotSpeed', 0)
+            result['avg_shot_speed'] = data.get('avgShotSpeed', 0)
+
+            # Shot speed buckets
+            buckets = data.get('shotSpeedBuckets', {})
+            result['shots_100plus'] = buckets.get('100plus', 0)
+            result['shots_90_100'] = buckets.get('90to100', 0)
+            result['shots_80_90'] = buckets.get('80to90', 0)
+            result['shots_70_80'] = buckets.get('70to80', 0)
+
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error parsing skater shot speed for {player_id}: {e}")
+
+        return result
+
+    def get_skater_edge_summary(self, player_id: int) -> Dict:
+        """
+        Get combined skater Edge summary for signal enhancement.
+
+        This combines multiple Edge endpoints into a single summary
+        useful for the prop prediction signals.
+
+        Args:
+            player_id: NHL player ID
+
+        Returns:
+            Dict with combined Edge metrics
+        """
+        detail = self.get_skater_edge_detail(player_id)
+        zone_time = self.get_skater_zone_time(player_id)
+
+        result = {
+            'player_id': player_id,
+            'has_data': False,
+            # Shot quality
+            'top_shot_speed': 0,
+            'high_danger_shot_pct': 0,
+            # Zone time (offensive opportunity)
+            'offensive_zone_pct': 0,
+            'offensive_zone_starts_pct': 0,
+            # Assessment
+            'shot_quality': 'AVERAGE',  # HIGH, AVERAGE, LOW
+            'zone_deployment': 'BALANCED',  # OFFENSIVE, BALANCED, DEFENSIVE
+        }
+
+        if detail:
+            result['has_data'] = True
+            result['top_shot_speed'] = detail.get('top_shot_speed', 0)
+
+            # Calculate high danger shot %
+            total_shots = (
+                detail.get('high_danger_shots', 0) +
+                detail.get('mid_range_shots', 0) +
+                detail.get('long_range_shots', 0)
+            )
+            if total_shots > 0:
+                result['high_danger_shot_pct'] = detail.get('high_danger_shots', 0) / total_shots
+
+            result['offensive_zone_pct'] = detail.get('offensive_zone_time_pct', 0)
+
+            # Assess shot quality
+            if result['top_shot_speed'] >= 95 or result['high_danger_shot_pct'] >= 0.40:
+                result['shot_quality'] = 'HIGH'
+            elif result['top_shot_speed'] <= 80 or result['high_danger_shot_pct'] <= 0.20:
+                result['shot_quality'] = 'LOW'
+
+        if zone_time:
+            result['offensive_zone_starts_pct'] = zone_time.get('offensive_zone_starts_pct', 0)
+
+            # Assess zone deployment
+            oz_pct = zone_time.get('all_offensive_pct', 50)
+            if oz_pct >= 55:
+                result['zone_deployment'] = 'OFFENSIVE'
+            elif oz_pct <= 45:
+                result['zone_deployment'] = 'DEFENSIVE'
+
+        return result
+
+    # =========================================================================
     # HELPER METHODS
     # =========================================================================
 

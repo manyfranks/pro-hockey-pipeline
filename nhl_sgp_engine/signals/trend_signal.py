@@ -37,8 +37,11 @@ class TrendSignal(BaseSignal):
 
         # Get recent vs season data (convert Decimals to float)
         recent_ppg = float(ctx.recent_ppg) if ctx.recent_ppg is not None else None
-        season_avg = ctx.get_season_avg('points')  # Use points as proxy
-        if season_avg is not None:
+        # Try to get season avg for the actual stat type, fall back to pre-calculated season_avg
+        season_avg = ctx.get_season_avg(stat_type)
+        if season_avg is None and ctx.season_avg is not None:
+            season_avg = float(ctx.season_avg)  # Use pre-calculated if specific stat not available
+        elif season_avg is not None:
             season_avg = float(season_avg)
         point_streak = ctx.point_streak or 0
         recent_games = ctx.recent_games or 0
