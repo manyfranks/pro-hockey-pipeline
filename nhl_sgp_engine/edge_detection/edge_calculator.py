@@ -78,24 +78,40 @@ class EdgeCalculator:
     6. (Optional) Apply contrarian logic for high-edge predictions
     """
 
+    # Stat-specific contrarian thresholds (Dec 22, 2025 optimization)
+    # Based on backtest findings showing different optimal thresholds by market
+    STAT_CONTRARIAN_THRESHOLDS = {
+        'saves': 10.0,  # 63.2% hit rate on negative edge - more aggressive contrarian
+        'points': 15.0,
+        'assists': 15.0,
+        'shots_on_goal': 15.0,
+        'goals': 15.0,
+    }
+
     def __init__(
         self,
         signal_weights: Dict[str, float] = None,
         contrarian_threshold: Optional[float] = None,
+        stat_contrarian_thresholds: Optional[Dict[str, float]] = None,
     ):
         """
         Initialize EdgeCalculator.
 
         Args:
             signal_weights: Custom weights for signals (default: SIGNAL_WEIGHTS)
-            contrarian_threshold: If set, fade predictions when edge > this value.
+            contrarian_threshold: Default threshold for fading high-edge predictions.
                                   Based on backtest findings:
                                   - 15%+ edge = 42.8% hit rate
                                   - Fading 15%+ edge = ~57.2% hit rate
                                   Recommended: 10.0 to 15.0
+            stat_contrarian_thresholds: Optional dict of stat_type -> threshold for
+                                        stat-specific contrarian behavior. Useful when
+                                        certain markets (like saves) benefit from more
+                                        aggressive fading.
         """
         self.weights = signal_weights or SIGNAL_WEIGHTS
         self.contrarian_threshold = contrarian_threshold
+        self.stat_contrarian_thresholds = stat_contrarian_thresholds or self.STAT_CONTRARIAN_THRESHOLDS
 
         # Initialize signals
         self.signals = {
@@ -259,8 +275,20 @@ class EdgeCalculator:
         # - 15%+ edge = 42.8% hit rate → fading = 57.2% theoretical hit rate
         # - Higher model confidence correlates with WORSE outcomes
         # - Fading high-edge predictions exploits this inverted relationship
+        #
+        # STAT-SPECIFIC THRESHOLDS (Dec 22, 2025):
+        # - Saves: 10% threshold (63.2% hit rate on negative edge - needs aggressive fading)
+        # - Other stats: 15% threshold (standard)
         original_direction = direction
-        if self.contrarian_threshold and edge_pct > self.contrarian_threshold:
+
+        # Get stat-specific threshold, fallback to default
+        stat_type = ctx.stat_type if hasattr(ctx, 'stat_type') else ''
+        effective_threshold = self.stat_contrarian_thresholds.get(
+            stat_type,
+            self.contrarian_threshold  # Fallback to default threshold
+        )
+
+        if effective_threshold and edge_pct > effective_threshold:
             # Flip the direction
             if direction == 'over':
                 direction = 'under'

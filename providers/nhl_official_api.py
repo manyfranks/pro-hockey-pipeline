@@ -469,6 +469,86 @@ class NHLOfficialAPI:
 
         return {'skaters': skaters, 'goalies': goalies}
 
+    def get_team_zone_time(self, team_abbrev: str) -> Optional[Dict]:
+        """
+        Get team zone time data from NHL Edge API.
+
+        Critical for saves signal - opponent's offensive zone time correlates
+        with shots generated against our goalie.
+
+        Args:
+            team_abbrev: Team abbreviation (e.g., 'TOR', 'BOS')
+
+        Returns:
+            Dict with zone time percentages by situation or None
+        """
+        # Get team ID from abbreviation
+        team_id = self._get_team_id(team_abbrev)
+        if not team_id:
+            return None
+
+        cache_key = f"team_zone_time_{team_abbrev}"
+
+        data = self._api_get(
+            f"/v1/edge/team-zone-time-details/{team_id}/now",
+            cache_key,
+            ttl_hours=4
+        )
+
+        if not data:
+            return None
+
+        result = {
+            'team': team_abbrev,
+            'team_id': team_id,
+            # All situations
+            'all_offensive_pct': 0,
+            'all_defensive_pct': 0,
+            'all_neutral_pct': 0,
+            # Even strength
+            'es_offensive_pct': 0,
+            'es_defensive_pct': 0,
+            # Power play
+            'pp_offensive_pct': 0,
+        }
+
+        try:
+            # All situations
+            all_sit = data.get('allSituations', {})
+            result['all_offensive_pct'] = all_sit.get('offensivePct', 0)
+            result['all_defensive_pct'] = all_sit.get('defensivePct', 0)
+            result['all_neutral_pct'] = all_sit.get('neutralPct', 0)
+
+            # Even strength (most common situation)
+            es = data.get('evenStrength', {})
+            result['es_offensive_pct'] = es.get('offensivePct', 0)
+            result['es_defensive_pct'] = es.get('defensivePct', 0)
+
+            # Power play
+            pp = data.get('powerPlay', {})
+            result['pp_offensive_pct'] = pp.get('offensivePct', 0)
+
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error parsing team zone time for {team_abbrev}: {e}")
+
+        return result
+
+    def _get_team_id(self, team_abbrev: str) -> Optional[int]:
+        """Get team ID from abbreviation."""
+        # NHL team ID mapping
+        team_ids = {
+            'ANA': 24, 'ARI': 53, 'BOS': 6, 'BUF': 7, 'CGY': 20, 'CAR': 12,
+            'CHI': 16, 'COL': 21, 'CBJ': 29, 'DAL': 25, 'DET': 17, 'EDM': 22,
+            'FLA': 13, 'LAK': 26, 'MIN': 30, 'MTL': 8, 'NSH': 18, 'NJD': 1,
+            'NYI': 2, 'NYR': 3, 'OTT': 9, 'PHI': 4, 'PIT': 5, 'SJS': 28,
+            'SEA': 55, 'STL': 19, 'TBL': 14, 'TOR': 10, 'UTA': 59, 'VAN': 23,
+            'VGK': 54, 'WSH': 15, 'WPG': 52,
+            # Aliases
+            'LA': 26, 'TB': 14, 'NJ': 1, 'NY': 3, 'SJ': 28, 'VEG': 54,
+            'MON': 8, 'NAS': 18,
+        }
+        return team_ids.get(team_abbrev.upper())
+
     # =========================================================================
     # GOALIE DATA
     # =========================================================================

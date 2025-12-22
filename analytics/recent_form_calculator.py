@@ -25,7 +25,14 @@ ELITE_PPG = 1.50       # Elite scorers (McDavid, Draisaitl level)
 # PPG CAP - Players above this get NO additional credit (regression to mean risk)
 # Analysis showed 3.0+ PPG players had WORST hit rate (11.9%)
 # Sweet spot is 2.0-3.0 PPG (21.6% hit rate)
-PPG_CAP = 2.0  # Cap at 2.0 PPG - anything above this is regression risk
+# UPDATED Dec 22, 2025: Score bucket analysis showed 85+ scores = 15.2% hit rate,
+# while 70-74 scores = 77.2% hit rate. Hot streaks = regression.
+PPG_CAP = 1.5  # Lowered from 2.0 - anything above this is regression risk
+
+# Regression penalty for extremely hot players
+# When PPG > 2.0, REDUCE the score to counteract regression
+REGRESSION_PENALTY_THRESHOLD = 2.0
+REGRESSION_PENALTY_FACTOR = 0.15  # Reduce score by 15% when PPG > threshold
 
 # Streak bonuses - REDUCED since chasing hot streaks leads to regression
 STREAK_BONUS_3_GAMES = 0.02   # 3+ consecutive games with point (was 0.05)
@@ -84,8 +91,15 @@ def calculate_recent_form_score(player_data: Dict[str, Any]) -> Dict[str, Any]:
     elif point_streak >= 3:
         streak_bonus = STREAK_BONUS_3_GAMES
 
-    # Final form score (with streak bonus capped)
-    recent_form_score = min(normalized_ppg + streak_bonus, 1.0)
+    # Apply regression penalty for extremely hot players
+    # Players with PPG > 2.0 are due for regression - reduce their score
+    regression_penalty = 0.0
+    if recent_ppg > REGRESSION_PENALTY_THRESHOLD:
+        regression_penalty = REGRESSION_PENALTY_FACTOR
+
+    # Final form score (with streak bonus and regression penalty)
+    recent_form_score = min(normalized_ppg + streak_bonus, 1.0) - regression_penalty
+    recent_form_score = max(0.0, recent_form_score)  # Don't go below 0
 
     # Goal/assist ratio (for context, not used in scoring)
     goal_ratio = recent_goals / recent_points if recent_points > 0 else 0.0
@@ -105,6 +119,8 @@ def calculate_recent_form_score(player_data: Dict[str, Any]) -> Dict[str, Any]:
             'capped_ppg': round(capped_ppg, 4),  # PPG after cap applied
             'ppg_was_capped': recent_ppg > PPG_CAP,  # Flag if cap was applied
             'normalized_ppg': round(normalized_ppg, 4),
+            'regression_penalty': round(regression_penalty, 4),  # Penalty for hot streaks
+            'regression_applied': recent_ppg > REGRESSION_PENALTY_THRESHOLD,
         }
     }
 

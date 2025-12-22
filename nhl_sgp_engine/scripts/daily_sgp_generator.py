@@ -60,10 +60,36 @@ CONTRARIAN_THRESHOLD = 15.0
 MIN_EDGE_PCT = 3.0   # Minimum edge to consider
 MAX_EDGE_PCT = 15.0  # Props above this get faded by contrarian logic
 
-# Parlay configuration
-MIN_LEGS_PER_PARLAY = 3
-MAX_LEGS_PER_PARLAY = 4
+# Parlay configuration - TIERED SYSTEM (Dec 22, 2025)
+# Base: 2-3 legs (20-9% win rate expected)
+# Allow 4th leg only for "star player" edges (see STAR_PLAYER_CRITERIA)
+MIN_LEGS_PER_PARLAY = 2
+BASE_MAX_LEGS = 3        # Default max without star player
+MAX_LEGS_PER_PARLAY = 4  # Absolute max (only with star player leg)
 MAX_LEGS_PER_PLAYER = 1  # Avoid overloading one player
+
+# Minimum confidence for ANY leg
+# NOTE: Signal confidence averages ~0.55-0.65 with current implementation
+# Backtest showed 0.7+ = 47.7% hit rate, but signals rarely reach that threshold
+# Setting to 0.55 to allow legs with reasonable confidence while filtering low-data props
+MIN_CONFIDENCE = 0.55
+
+# Star Player Criteria - leg must meet ALL to qualify for 4th leg slot
+# Based on Dec 22 backtest showing these filters improve hit rate
+# NOTE: Confidence adjusted from 0.70 to 0.60 since signals rarely reach 0.70
+STAR_PLAYER_CRITERIA = {
+    'min_confidence': 0.60,        # Higher than MIN_CONFIDENCE (0.55) for star legs
+    'direction': 'over',           # 41.6% vs 26.7% for unders
+    'max_line': 0.5,               # 42.1% vs 32.0% for 1.5 lines
+    'stat_types': ['points', 'assists'],  # Best performing markets
+    'min_edge': 3.0,               # Minimum edge
+    'max_edge': 10.0,              # Sweet spot - high edge underperforms
+}
+
+# Overs-only mode: If True, exclude all contrarian-flipped unders
+# Backtest showed overs hit 41.6% vs unders 26.7%
+# Enable this to be more conservative at expense of volume
+OVERS_ONLY_MODE = False
 
 
 class NHLSGPGenerator:
@@ -150,7 +176,14 @@ class NHLSGPGenerator:
             return None
 
         try:
-            under_odds = -over_odds if over_odds > 0 else -over_odds
+            # Estimate under odds when not available from API
+            # BUG FIX (Dec 22, 2025): Original code had identical branches
+            # For plus-money overs (e.g., +150): under is minus-money at similar magnitude
+            # For minus-money overs (e.g., -110): under is also minus-money (standard vig)
+            if over_odds > 0:
+                under_odds = -over_odds  # +150 over → ~-150 under
+            else:
+                under_odds = -110  # Standard vig for minus-money markets
             edge_result = self.edge_calculator.calculate_edge(ctx, over_odds, under_odds)
 
             # Calculate OVER edge specifically
@@ -351,24 +384,91 @@ class NHLSGPGenerator:
         """Generate a narrative thesis for the parlay using LLM."""
         return self.thesis_generator.generate_thesis(game_data, legs)
 
+    def _is_star_player_leg(self, prop: Dict) -> bool:
+        """
+        Check if a prop qualifies as a "star player" leg.
+
+        Star player legs can extend a parlay from 3 to 4 legs.
+        Must meet ALL criteria from STAR_PLAYER_CRITERIA.
+        """
+        criteria = STAR_PLAYER_CRITERIA
+
+        # Check confidence
+        if prop.get('confidence', 0) < criteria['min_confidence']:
+            return False
+
+        # Check direction (must be over)
+        if prop.get('direction', '').lower() != criteria['direction']:
+            return False
+
+        # Check line (0.5 only - no 1.5 lines)
+        if prop.get('line', 999) > criteria['max_line']:
+            return False
+
+        # Check stat type (points or assists only)
+        if prop.get('stat_type', '') not in criteria['stat_types']:
+            return False
+
+        # Check edge is in sweet spot (3-10%)
+        edge = abs(prop.get('edge_pct', 0))
+        if edge < criteria['min_edge'] or edge > criteria['max_edge']:
+            return False
+
+        return True
+
     def select_parlay_legs(self, actionable_props: List[Dict]) -> List[Dict]:
         """
-        Select optimal legs for a parlay from actionable props.
+        Select optimal legs for a parlay using TIERED selection (Dec 22, 2025).
+
+        Tiered System:
+        - Base: 2-3 legs (9-20% expected win rate)
+        - Allow 4th leg ONLY if it qualifies as "star player" edge
 
         Rules:
-        - 3-4 legs per parlay
         - Max 1 leg per player
-        - Prioritize by edge percentage
-        - Diversify stat types if possible
+        - Filter by minimum confidence
+        - Prefer overs (41.6% hit rate vs 26.7% for unders)
+        - Prefer 0.5 lines (42.1% vs 32.0% for 1.5)
+        - Star player leg required to exceed BASE_MAX_LEGS
         """
-        # Sort by edge
-        sorted_props = sorted(actionable_props, key=lambda x: x['edge_pct'], reverse=True)
+        # Filter by minimum confidence first
+        confident_props = [p for p in actionable_props if p.get('confidence', 0) >= MIN_CONFIDENCE]
+
+        # Optional: Filter out contrarian-flipped unders (conservative mode)
+        if OVERS_ONLY_MODE:
+            confident_props = [p for p in confident_props if p.get('direction', '').lower() == 'over']
+
+        # Separate star player legs from regular legs
+        star_legs = [p for p in confident_props if self._is_star_player_leg(p)]
+        regular_legs = [p for p in confident_props if not self._is_star_player_leg(p)]
+
+        # Sort by composite score: confidence * edge (favoring high confidence)
+        # But cap edge contribution since high edge performs worse
+        def leg_score(p):
+            # Confidence weighted heavily, edge capped at 10%
+            edge_contrib = min(abs(p.get('edge_pct', 0)), 10.0)
+            conf_contrib = p.get('confidence', 0.5) * 15  # Weight confidence higher
+
+            # Bonus for overs (41.6% vs 26.7%)
+            direction_bonus = 2.0 if p.get('direction', '').lower() == 'over' else 0
+
+            # Bonus for 0.5 lines (42.1% vs 32.0%)
+            line_bonus = 2.0 if p.get('line', 999) <= 0.5 else 0
+
+            # Bonus for points/assists markets
+            market_bonus = 2.0 if p.get('stat_type', '') in ['points', 'assists'] else 0
+
+            return edge_contrib + conf_contrib + direction_bonus + line_bonus + market_bonus
+
+        sorted_regular = sorted(regular_legs, key=leg_score, reverse=True)
+        sorted_star = sorted(star_legs, key=leg_score, reverse=True)
 
         selected = []
         used_players = set()
 
-        for prop in sorted_props:
-            if len(selected) >= MAX_LEGS_PER_PARLAY:
+        # Phase 1: Select up to BASE_MAX_LEGS from regular pool
+        for prop in sorted_regular:
+            if len(selected) >= BASE_MAX_LEGS:
                 break
 
             player = prop['player_name']
@@ -377,6 +477,36 @@ class NHLSGPGenerator:
 
             selected.append(prop)
             used_players.add(player)
+
+        # Phase 2: If we have BASE_MAX_LEGS, try to add ONE star player leg
+        if len(selected) >= BASE_MAX_LEGS:
+            for prop in sorted_star:
+                if len(selected) >= MAX_LEGS_PER_PARLAY:
+                    break
+
+                player = prop['player_name']
+                if player in used_players:
+                    continue
+
+                # Found a star player leg - add it
+                prop['is_star_leg'] = True  # Mark for display
+                selected.append(prop)
+                used_players.add(player)
+                break  # Only one star leg allowed
+
+        # Phase 3: If we don't have enough legs, try star legs as regular
+        # BUG FIX (Dec 22, 2025): Was stopping at BASE_MAX_LEGS, should stop at MIN_LEGS_PER_PARLAY
+        if len(selected) < MIN_LEGS_PER_PARLAY:
+            for prop in sorted_star:
+                if len(selected) >= MIN_LEGS_PER_PARLAY:
+                    break
+
+                player = prop['player_name']
+                if player in used_players:
+                    continue
+
+                selected.append(prop)
+                used_players.add(player)
 
         return selected if len(selected) >= MIN_LEGS_PER_PARLAY else []
 
@@ -442,6 +572,7 @@ class NHLSGPGenerator:
                 'supporting_reasons': [],
                 'risk_factors': [],
                 'signals': leg.get('signals', {}),
+                'is_star_leg': leg.get('is_star_leg', False),  # Track star leg status
                 # NOTE: contrarian_applied tracked in primary_reason prefix "[CONTRARIAN]"
             }
             leg_records.append(leg_record)
@@ -522,7 +653,8 @@ class NHLSGPGenerator:
             for leg in legs:
                 direction_char = 'O' if leg['direction'] == 'over' else 'U'
                 contrarian_tag = " [C]" if leg.get('contrarian_applied') else ""
-                print(f"  {leg['leg_number']}. {leg['player_name']} {leg['stat_type']} {direction_char}{leg['line']} ({leg['odds']:+d}) | Edge: {leg['edge_pct']}%{contrarian_tag}")
+                star_tag = " ⭐" if leg.get('is_star_leg') else ""
+                print(f"  {leg['leg_number']}. {leg['player_name']} {leg['stat_type']} {direction_char}{leg['line']} ({leg['odds']:+d}) | Edge: {leg['edge_pct']}% Conf: {leg['confidence']}{contrarian_tag}{star_tag}")
 
         # Save to database
         if not dry_run and all_parlays:

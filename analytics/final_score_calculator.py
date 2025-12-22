@@ -51,6 +51,12 @@ WEIGHTS = {
     'goalie_weakness': 0,    # REMOVED - was hurting predictions
 }
 
+# Maximum score cap - CRITICAL FIX (Dec 22, 2025)
+# Backtest showed: 85+ scores = 15.2% hit rate, 70-74 = 77.2% hit rate
+# When all signals align, model becomes OVERCONFIDENT and wrong
+# Cap scores to prevent regression-prone predictions from ranking too high
+MAX_FINAL_SCORE = 78.0  # Just above the optimal 70-74 bucket
+
 # Position-specific weight adjustments
 # All positions now use same weights since line_opportunity dominates
 POSITION_WEIGHTS = {
@@ -248,13 +254,18 @@ def calculate_final_score(player_data: Dict[str, Any],
     situational = situational_result['situational_score']
 
     # Calculate weighted final score (0-100 scale)
-    final_score = (
+    raw_final_score = (
         recent_form * weights['recent_form'] +
         line_opportunity * weights['line_opportunity'] +
         goalie_weakness * weights['goalie_weakness'] +
         matchup * weights['matchup'] +
         situational * weights['situational']
     )
+
+    # Apply maximum score cap (Dec 22, 2025)
+    # Prevents overconfident predictions that historically regress
+    final_score = min(raw_final_score, MAX_FINAL_SCORE)
+    score_was_capped = raw_final_score > MAX_FINAL_SCORE
 
     # Determine confidence tier
     confidence = _calculate_confidence_tier(player_data)
@@ -290,6 +301,8 @@ def calculate_final_score(player_data: Dict[str, Any],
 
     return {
         'final_score': round(final_score, 2),
+        'raw_final_score': round(raw_final_score, 2),  # Before cap
+        'score_was_capped': score_was_capped,  # True if regression cap applied
         'component_scores': component_scores,
         'weights_used': weights,
         'confidence': confidence,
