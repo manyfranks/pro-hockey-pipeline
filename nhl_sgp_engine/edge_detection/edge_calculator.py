@@ -79,13 +79,38 @@ class EdgeCalculator:
     """
 
     # Stat-specific contrarian thresholds (Dec 22, 2025 optimization)
-    # Based on backtest findings showing different optimal thresholds by market
+    #
+    # BACKTEST FINDINGS (Nov-Dec 2025):
+    #
+    # saves (947 props):
+    #   - 52.6% overall, negative edge = 55.0%, 5-10% edge = 41.8%
+    #   - Threshold: 5.0% - fade OVER/UNDER at 5%+ edge
+    #
+    # assists (9,720 props):
+    #   - Natural OVER rate: 35.1% (at 0.5 line, ~1/3 players get an assist)
+    #   - Model OVER picks: 38.3% (+3.2% above base) - model has slight edge
+    #   - BUT: 10%+ edge OVER picks hit only 36.1% (barely above base rate)
+    #   - Fading 5%+ edge OVER picks: 63.7% win rate (+13.7% edge!)
+    #   - Threshold: 5.0% - fade high-confidence OVER picks
+    #
+    # goals: Lines are 1.5/2.5 where UNDER wins 98%+ naturally. Model OVER picks
+    #        hit 25% vs 1.4% base rate - model is WORKING, not inverted!
+    #
+    # points: 50.6% hit rate at 0-5% edge (genuinely best bucket)
+    # shots_on_goal: Similar pattern to points
+    #
     STAT_CONTRARIAN_THRESHOLDS = {
-        'saves': 10.0,  # 63.2% hit rate on negative edge - more aggressive contrarian
-        'points': 15.0,
-        'assists': 15.0,
-        'shots_on_goal': 15.0,
-        'goals': 15.0,
+        'goals': 15.0,        # Standard - model works well for rare event
+        'saves': 5.0,         # Validated: 55% neg edge vs 41.8% at 5-10%
+        'assists': 5.0,       # Validated: Fade 5%+ OVER → 63.7% win rate
+        'points': 15.0,       # Validated: Less edge (~5.5%), keep conservative
+        'shots_on_goal': 10.0, # Validated: Fade 10%+ OVER → 59.6% win rate
+    }
+
+    # Direction overrides - not needed after proper backtest analysis
+    # Only use if data shows extreme directional bias (>70% one direction)
+    DIRECTION_OVERRIDE = {
+        # No overrides - saves shows balanced 52.6% hit rate, no extreme bias
     }
 
     def __init__(
@@ -270,25 +295,41 @@ class EdgeCalculator:
             market_prob = under_prob
             model_prob = model_prob_under
 
+        # DIRECTION OVERRIDE (Dec 22, 2025)
+        # Some markets have extreme directional bias in backtests
+        # e.g., saves: 100% under hit rate, 0% over hit rate
+        stat_type = ctx.stat_type if hasattr(ctx, 'stat_type') else ''
+        if stat_type in self.DIRECTION_OVERRIDE:
+            forced_direction = self.DIRECTION_OVERRIDE[stat_type]
+            if direction != forced_direction:
+                # Force to the override direction
+                direction = forced_direction
+                if forced_direction == 'under':
+                    edge_pct = under_edge
+                    market_prob = under_prob
+                    model_prob = model_prob_under
+                else:
+                    edge_pct = over_edge
+                    market_prob = over_prob
+                    model_prob = model_prob_over
+
         # Apply contrarian logic if threshold is set and edge exceeds it
-        # BACKTEST INSIGHT (Dec 18, 2025):
-        # - 15%+ edge = 42.8% hit rate → fading = 57.2% theoretical hit rate
-        # - Higher model confidence correlates with WORSE outcomes
-        # - Fading high-edge predictions exploits this inverted relationship
-        #
-        # STAT-SPECIFIC THRESHOLDS (Dec 22, 2025):
-        # - Saves: 10% threshold (63.2% hit rate on negative edge - needs aggressive fading)
-        # - Other stats: 15% threshold (standard)
+        # BACKTEST INSIGHT (Dec 22, 2025):
+        # - goals: 80.9% hit rate on negative edge → threshold 0% (always fade)
+        # - saves: 63.2% hit rate on negative edge → threshold 0% (always fade)
+        # - assists: 59.5% hit rate on negative edge → threshold 5%
+        # - points: 50.6% hit rate at 0-5% edge → threshold 15%
         original_direction = direction
 
         # Get stat-specific threshold, fallback to default
-        stat_type = ctx.stat_type if hasattr(ctx, 'stat_type') else ''
+        # (stat_type already extracted above for direction override)
         effective_threshold = self.stat_contrarian_thresholds.get(
             stat_type,
             self.contrarian_threshold  # Fallback to default threshold
         )
 
-        if effective_threshold and edge_pct > effective_threshold:
+        # Note: use `is not None` because threshold can be 0.0 for always-fade markets
+        if effective_threshold is not None and edge_pct > effective_threshold:
             # Flip the direction
             if direction == 'over':
                 direction = 'under'

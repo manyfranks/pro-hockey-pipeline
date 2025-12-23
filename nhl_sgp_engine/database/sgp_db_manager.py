@@ -129,6 +129,9 @@ class NHLSGPDBManager:
             Column('actual_value', Numeric(6, 1)),               # Post-game actual stat
             Column('result', String(10)),                        # 'WIN', 'LOSS', 'PUSH', 'VOID'
 
+            # Star player tracking (Dec 2025 optimization)
+            Column('is_star_leg', Boolean, default=False),       # Qualified as star player edge
+
             Column('created_at', TIMESTAMP, default=text("timezone('utc', now())")),
         )
 

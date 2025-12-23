@@ -578,8 +578,23 @@ class SignalBacktestEngine:
             'goals': 'goals',
             'assists': 'assists',
             'shots_on_goal': 'shots',
+            'saves': 'saves',  # Note: game log doesn't have this, handle separately
         }
         stat_key = stat_map.get(stat_type, 'points')
+
+        # GOALIE SPECIAL HANDLING
+        # Game logs don't include saves data for goalies, so use Edge API
+        position = player_info.get('position', '')
+        if stat_type == 'saves' or position == 'G':
+            return self._build_goalie_context(
+                player_id=player_id,
+                player_name=player_name,
+                team=team,
+                opponent=opponent,
+                game_date=game_date,
+                is_home=is_home,
+                position=position,
+            )
 
         # Season totals (all games before this date)
         season_total = sum(g.get(stat_key, 0) for g in games_before)
@@ -713,6 +728,90 @@ class SignalBacktestEngine:
         else:
             return 0  # Not a regular PP player
 
+    def _build_goalie_context(
+        self,
+        player_id: int,
+        player_name: str,
+        team: str,
+        opponent: str,
+        game_date: date,
+        is_home: bool,
+        position: str,
+    ) -> Optional[Dict]:
+        """
+        Build context specifically for goalie saves props.
+
+        Uses goalie Edge API endpoints since game logs don't include saves.
+        """
+        try:
+            # Get goalie form data from Edge API
+            goalie_form = self.nhl_api.get_goalie_recent_form(player_id)
+
+            # Get goalie detail for more stats
+            goalie_detail = self.nhl_api.get_goalie_edge_detail(player_id)
+
+            # Estimate average saves per game
+            # NHL average is ~27 saves/game for starters
+            # Use Edge API data to adjust
+            base_saves = 27.0
+
+            if goalie_form:
+                # Adjust based on save % (higher SV% = likely more saves on avg)
+                season_sv_pct = goalie_form.get('season_save_pct', 0.900)
+                recent_sv_pct = goalie_form.get('recent_save_pct', season_sv_pct)
+
+                # Higher SV% often correlates with facing more shots
+                # (good goalies on bad teams face more shots)
+                if season_sv_pct > 0.915:
+                    base_saves = 29.0  # Elite goalies often face more
+                elif season_sv_pct > 0.905:
+                    base_saves = 27.5
+                else:
+                    base_saves = 26.0
+
+            # Check if goalie is the starter (approximate via games played)
+            games_above_900 = goalie_detail.get('games_above_900', 0) if goalie_detail else 0
+            is_likely_starter = games_above_900 > 5  # Has 5+ games above .900
+
+            return {
+                'player_id': player_id,
+                'position': 'G',
+                'season_games': games_above_900 + 5,  # Approximate
+                'season_total': 0,  # Not used for saves
+                'season_avg': base_saves,  # Estimated saves per game
+                'recent_games': 10,
+                'recent_total': 0,
+                'recent_avg': base_saves,  # Use same as season for now
+                'avg_toi_minutes': 60.0,  # Goalies play full game
+                'line_number': None,  # Not applicable
+                'pp_unit': 0,  # Not applicable
+                'pp_goals': 0,
+                'pp_points': 0,
+                # Goalie-specific
+                'save_pct': goalie_form.get('season_save_pct', 0.900) if goalie_form else 0.900,
+                'recent_save_pct': goalie_form.get('recent_save_pct', 0.900) if goalie_form else 0.900,
+                'is_starter': is_likely_starter,
+                # Opponent info
+                'opp_goalie_name': None,  # Not relevant for goalie props
+                'opp_goalie_sv_pct': 0,
+                'opp_goalie_gaa': 0,
+                'is_b2b': False,  # Would need to check schedule
+                'game_total': None,
+                'spread': None,
+            }
+
+        except Exception as e:
+            # Fallback with minimal context
+            return {
+                'player_id': player_id,
+                'position': 'G',
+                'season_games': 10,
+                'season_avg': 27.0,
+                'recent_games': 10,
+                'recent_avg': 27.0,
+                'avg_toi_minutes': 60.0,
+            }
+
     def _settle_all_props(self):
         """Settle all props against box scores."""
         # Group by date for efficiency
@@ -772,6 +871,7 @@ class SignalBacktestEngine:
             'goals': 'goals',
             'assists': 'assists',
             'shots_on_goal': 'shots',
+            'saves': 'saves',  # Goalie saves - data is in players list
         }
         stat_key = stat_map.get(stat_type, 'points')
 
