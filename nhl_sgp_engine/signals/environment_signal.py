@@ -3,6 +3,10 @@ Environment Signal
 
 Evaluates situational factors: rest, travel, home/away.
 Back-to-back games, long road trips, etc. affect performance.
+
+Dec 22, 2025: Scaled up adjustments to use full [-1, +1] range.
+Previously max positive was +0.05 which hit the 0.05 threshold boundary
+and was classified as neutral in backtest analysis.
 """
 from typing import Dict, Any, Optional
 from .base import BaseSignal, SignalResult, PropContext
@@ -15,8 +19,12 @@ class EnvironmentSignal(BaseSignal):
     Methodology:
     - Back-to-back games (B2B) = fatigue = UNDER bias
     - Well-rested = positive
-    - Home ice advantage = slight boost
+    - Home ice advantage = moderate boost
     - Uses pipeline's situational analysis
+
+    Output range: [-1.0 to +0.5] approximately
+    - B2B + away: -0.9 + (-0.1) = -1.0
+    - Well rested + home: +0.3 + +0.2 = +0.5
     """
 
     @property
@@ -42,26 +50,29 @@ class EnvironmentSignal(BaseSignal):
         notes = []
         adjustments = []
 
-        # Back-to-back penalty
+        # Back-to-back penalty (SCALED UP from -0.3)
+        # B2B is significant - players average 5-10% fewer points on B2B
         if is_b2b:
-            adjustments.append(-0.3)
+            adjustments.append(-0.9)
             notes.append("B2B fatigue")
 
-        # Rest bonus/penalty
+        # Rest bonus/penalty (SCALED UP from +0.1)
         if days_rest is not None:
             if days_rest >= 3:
-                adjustments.append(0.1)
+                adjustments.append(0.3)
                 notes.append(f"Well rested ({days_rest} days)")
             elif days_rest == 0:
                 # Already captured by B2B, but add note
                 pass
 
-        # Home ice advantage (slight)
+        # Home ice advantage (SCALED UP from +0.05/-0.03)
+        # Home teams win ~55% of NHL games, meaningful edge
         if is_home is True:
-            adjustments.append(0.05)
+            adjustments.append(0.2)
             notes.append("Home ice")
         elif is_home is False:
-            adjustments.append(-0.03)
+            adjustments.append(-0.1)
+            notes.append("Away")
 
         # Calculate total adjustment
         strength = sum(adjustments) if adjustments else 0

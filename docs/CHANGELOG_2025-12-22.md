@@ -221,8 +221,9 @@ High-confidence OVER picks don't beat base rates. **Fading provides 13.7% edge.*
 
 ### SGP Engine
 - `nhl_sgp_engine/scripts/daily_sgp_generator.py` - Tiered parlay system
-- `nhl_sgp_engine/edge_detection/edge_calculator.py` - Stat-specific thresholds (saves=5.0%)
+- `nhl_sgp_engine/edge_detection/edge_calculator.py` - Stat-specific thresholds (saves=5.0%, assists=5.0%, shots=10.0%)
 - `nhl_sgp_engine/signals/goalie_saves_signal.py` - Complete rewrite
+- `nhl_sgp_engine/signals/environment_signal.py` - **Fixed output range** (was +0.05 max, now +0.50)
 - `nhl_sgp_engine/scripts/signal_backtest.py` - **Fixed saves settlement** (added goalie context)
 
 ### API Integration
