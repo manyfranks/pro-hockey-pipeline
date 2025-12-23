@@ -244,12 +244,22 @@ class NHLPredictionPipeline:
         print(f"\n{'='*70}")
         print("TOP 10 PREDICTIONS")
         print(f"{'='*70}")
-        print(f"{'Rank':<5} {'Player':<22} {'Team':<5} {'Pos':<4} {'Line':<5} {'PP':<4} {'Score':<7} {'PPG':<6}")
-        print("-" * 70)
+        print(f"{'Rank':<5} {'Player':<22} {'Team':<5} {'Pos':<4} {'Line':<5} {'PP':<4} {'Score':<7} {'PPG':<6} {'Flags':<20}")
+        print("-" * 90)
 
         for i, p in enumerate(scored_players[:10], 1):
+            # Show regression flags if present (makes hot streak penalties obvious)
+            flags = p.get('regression_flags', [])
+            flag_str = ','.join(flags) if flags else '-'
             print(f"{i:<5} {p['player_name']:<22} {p['team']:<5} {p['position']:<4} "
-                  f"L{p['line_number']:<4} PP{p['pp_unit']:<3} {p['final_score']:<7.1f} {p['recent_ppg']:<6.2f}")
+                  f"L{p['line_number']:<4} PP{p['pp_unit']:<3} {p['final_score']:<7.1f} {p['recent_ppg']:<6.2f} {flag_str:<20}")
+
+        # Show any regression-adjusted players in top 25 for visibility
+        regression_players = [p for p in scored_players[:25] if p.get('regression_flags')]
+        if regression_players:
+            print(f"\n⚠️  REGRESSION ADJUSTMENTS APPLIED ({len(regression_players)} players in top 25):")
+            for p in regression_players[:3]:  # Show top 3
+                print(f"   {p['player_name']}: PPG {p['recent_ppg']:.2f} → {p.get('regression_explanation', 'See regression_flags')[:80]}...")
 
         # Save results
         if save:

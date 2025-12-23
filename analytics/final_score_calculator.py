@@ -51,11 +51,15 @@ WEIGHTS = {
     'goalie_weakness': 0,    # REMOVED - was hurting predictions
 }
 
-# Maximum score cap - CRITICAL FIX (Dec 22, 2025)
+# Overconfidence threshold - CRITICAL FIX (Dec 22, 2025)
 # Backtest showed: 85+ scores = 15.2% hit rate, 70-74 = 77.2% hit rate
 # When all signals align, model becomes OVERCONFIDENT and wrong
-# Cap scores to prevent regression-prone predictions from ranking too high
-MAX_FINAL_SCORE = 78.0  # Just above the optimal 70-74 bucket
+#
+# Instead of capping (which just relabels bad predictions), we apply
+# a CONTRARIAN PENALTY that pushes overconfident predictions BELOW
+# moderate-confidence predictions in the rankings.
+OVERCONFIDENCE_THRESHOLD = 80.0  # Scores above this are overconfident
+OVERCONFIDENCE_PENALTY = 15.0    # Points to subtract from overconfident scores
 
 # Position-specific weight adjustments
 # All positions now use same weights since line_opportunity dominates
@@ -262,10 +266,22 @@ def calculate_final_score(player_data: Dict[str, Any],
         situational * weights['situational']
     )
 
-    # Apply maximum score cap (Dec 22, 2025)
-    # Prevents overconfident predictions that historically regress
-    final_score = min(raw_final_score, MAX_FINAL_SCORE)
-    score_was_capped = raw_final_score > MAX_FINAL_SCORE
+    # Apply overconfidence penalty (Dec 22, 2025)
+    # Instead of capping, we PENALIZE overconfident predictions to push them
+    # BELOW moderate-confidence predictions in rankings.
+    # This is the correct approach - capping just relabels bad predictions.
+    #
+    # Example: raw_score 85 → 85 - 15 = 70 (pushed below the 70-74 sweet spot)
+    #          raw_score 90 → 90 - 15 = 75 (still penalized)
+    #          raw_score 75 → 75 (no penalty, in optimal range)
+    if raw_final_score > OVERCONFIDENCE_THRESHOLD:
+        overconfidence_penalty = OVERCONFIDENCE_PENALTY
+        final_score = raw_final_score - overconfidence_penalty
+    else:
+        overconfidence_penalty = 0.0
+        final_score = raw_final_score
+
+    is_overconfident = raw_final_score > OVERCONFIDENCE_THRESHOLD
 
     # Determine confidence tier
     confidence = _calculate_confidence_tier(player_data)
@@ -299,10 +315,37 @@ def calculate_final_score(player_data: Dict[str, Any],
         },
     }
 
+    # Build regression/penalty explanation for analytics transparency
+    # This makes it OBVIOUS why a hot player might rank lower than expected
+    regression_flags = []
+    regression_explanation = None
+
+    form_details = player_data.get('form_details', {})
+    if form_details.get('regression_applied'):
+        regression_flags.append('HOT_STREAK_PENALTY')
+    if form_details.get('ppg_was_capped'):
+        regression_flags.append('PPG_CAPPED')
+    if is_overconfident:
+        regression_flags.append('OVERCONFIDENCE_PENALTY')
+
+    if regression_flags:
+        raw_ppg = form_details.get('raw_ppg', 0)
+        regression_explanation = (
+            f"REGRESSION ADJUSTMENT: Player PPG ({raw_ppg:.2f}) exceeds sustainable threshold. "
+            f"Flags: {', '.join(regression_flags)}. "
+            f"Raw score {raw_final_score:.1f} adjusted to {final_score:.1f}. "
+            f"Reason: Historical 85+ scores hit only 15.2% vs 77.2% for 70-74 range. "
+            f"Hot streaks predict regression, not continuation."
+        )
+
     return {
         'final_score': round(final_score, 2),
-        'raw_final_score': round(raw_final_score, 2),  # Before cap
-        'score_was_capped': score_was_capped,  # True if regression cap applied
+        'raw_final_score': round(raw_final_score, 2),  # Before penalty
+        'is_overconfident': is_overconfident,  # True if overconfidence penalty applied
+        'overconfidence_penalty': round(overconfidence_penalty, 2),  # How much was subtracted
+        # ANALYTICS TRANSPARENCY - makes penalties obvious without digging
+        'regression_flags': regression_flags,  # ['HOT_STREAK_PENALTY', 'PPG_CAPPED', etc.]
+        'regression_explanation': regression_explanation,  # Human-readable explanation
         'component_scores': component_scores,
         'weights_used': weights,
         'confidence': confidence,
