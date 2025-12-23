@@ -41,20 +41,25 @@ ELITE_EDGE_PCT = 12.0        # Elite edge threshold
 MIN_CONFIDENCE = 0.60        # Minimum confidence to include
 HIGH_CONFIDENCE = 0.75       # High confidence threshold
 
-# Signal Weights (optimized based on Dec 18, 2025 backtest - 75,451 props)
+# Signal Weights (re-optimized Dec 22, 2025 based on 48,000+ prop backtest)
 # Predictive value = |positive_hit_rate - negative_hit_rate|
-# NOTE: These weights are used WITH contrarian mode (threshold=15.0)
-# The inverted edge relationship means signal DIRECTION matters more than magnitude
+#
+# KEY CHANGES:
+# - matchup: 0.10 → 0.22 (was HIGHEST predictor at 20.7%, was underweighted)
+# - environment: 0.24 → 0.18 (was bugged, now fixed, shows 2.0% predictive)
+# - usage/line_value: reduced to reflect actual 4-5% predictive value
+# - trend/correlation: minimized (< 2% predictive value)
+#
 SIGNAL_WEIGHTS = {
-    'environment': 0.24,     # B2B, rest, travel (61.0% predictive - HIGHEST!)
-    'usage': 0.19,           # TOI/PP/line deployment (24.5% predictive)
-    'line_value': 0.15,      # Season avg vs prop line (20.0% predictive)
-    'matchup': 0.10,         # Goalie quality, team defense (5.1% predictive)
-    'shot_quality': 0.08,    # NHL Edge API - shot speed, HD%, zone deployment (NEW)
-    'goalie_saves': 0.08,    # NHL Edge API - goalie saves props (VALIDATED 63.2%)
-    'game_totals': 0.08,     # Game total O/U signal (NEW - needs backtest)
-    'correlation': 0.04,     # Game total/spread impact (2.8% predictive)
-    'trend': 0.04,           # Recent form vs season (0.7% predictive - nearly useless)
+    'matchup': 0.22,         # Goalie quality, team defense (20.7% predictive - HIGHEST!)
+    'environment': 0.18,     # B2B, rest, home/away (fixed Dec 22 - now properly scaled)
+    'usage': 0.14,           # TOI/PP/line deployment (4.2% predictive)
+    'line_value': 0.14,      # Season avg vs prop line (5.5% predictive)
+    'shot_quality': 0.12,    # NHL Edge API - shot speed, HD%, zone deployment
+    'goalie_saves': 0.10,    # NHL Edge API - goalie saves props (52.6% validated)
+    'game_totals': 0.06,     # Game total O/U signal
+    'correlation': 0.02,     # Game total/spread impact (1.2% predictive - weak)
+    'trend': 0.02,           # Recent form vs season (1.5% predictive - weak)
 }
 
 # Parlay Configuration
