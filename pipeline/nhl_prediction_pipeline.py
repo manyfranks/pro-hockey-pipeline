@@ -54,7 +54,7 @@ class NHLPredictionPipeline:
         Get line and PP info for a player from DailyFaceoff.
 
         Returns:
-            Dict with 'line' (1-4) and 'pp_unit' (0, 1, 2)
+            Dict with 'line' (1-4), 'pp_unit' (0, 1, 2), and 'lineup_confirmed' (bool)
         """
         info = self.dailyfaceoff.get_player_line_info(player_name, team_abbrev)
 
@@ -63,13 +63,16 @@ class NHLPredictionPipeline:
                 'line_number': info.get('line', 4),
                 'pp_unit': info.get('pp_unit', 0),
                 'position': info.get('position', 'unknown'),
+                'lineup_confirmed': True,  # Player is in DailyFaceoff projected lineup
             }
 
-        # Fallback: Use NHL API TOI to infer line
+        # Fallback: Player not in projected lineup
+        # Mark as unconfirmed - these players may be scratched
         return {
-            'line_number': 3,  # Default to 3rd line if not found
+            'line_number': 4,  # Default to 4th line if not found (likely scratch)
             'pp_unit': 0,
             'position': 'unknown',
+            'lineup_confirmed': False,  # NOT in DailyFaceoff lineup - may not play
         }
 
     def get_opposing_goalie(self, team_abbrev: str, opponent_abbrev: str) -> Dict:
@@ -134,6 +137,7 @@ class NHLPredictionPipeline:
             # Line info (from DailyFaceoff)
             'line_number': line_info['line_number'],
             'pp_unit': line_info['pp_unit'],
+            'lineup_confirmed': line_info.get('lineup_confirmed', False),
 
             # Season stats (from get_team_stats which uses games_played, goals, etc.)
             'season_games': player.get('games_played', player.get('season_games', 0)),
@@ -228,6 +232,12 @@ class NHLPredictionPipeline:
                     entry = self.build_player_entry(
                         player, game, team_abbrev, is_home, target_date
                     )
+
+                    # Filter out unconfirmed L4 players to reduce DNP rate
+                    # Only include L4 players if they're confirmed in DailyFaceoff lineup
+                    if entry['line_number'] >= 4 and not entry.get('lineup_confirmed', False):
+                        continue  # Skip - likely scratch
+
                     all_players.append(entry)
 
         print(f"\nTotal players to score: {len(all_players)}")
@@ -307,6 +317,11 @@ class NHLPredictionPipeline:
                     entry = self.build_player_entry(
                         player, game, team_abbrev, is_home, target_date
                     )
+
+                    # Filter out unconfirmed L4 players (same as main generate)
+                    if entry['line_number'] >= 4 and not entry.get('lineup_confirmed', False):
+                        continue
+
                     all_players.append(entry)
 
         if not all_players:

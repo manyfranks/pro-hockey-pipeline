@@ -614,6 +614,11 @@ class NHLInsightsGenerator:
             summary = self.db.get_hit_rate_summary(start_date, end_date)
 
             if summary.get('total_predictions', 0) > 0:
+                # Extract hit rates from by_rank list
+                by_rank = {b['bucket']: b['hit_rate'] for b in summary.get('by_rank', [])}
+                top_5_rate = by_rank.get('Top 5')
+                top_10_rate = by_rank.get('Top 10')
+
                 return {
                     'period': f"Last {lookback_days} days",
                     'start_date': str(start_date),
@@ -622,8 +627,8 @@ class NHLInsightsGenerator:
                     'hits': summary.get('hits', 0),
                     'misses': summary.get('misses', 0),
                     'hit_rate': summary.get('overall_hit_rate', 0),
-                    'top_10_hit_rate': summary.get('top_10_hit_rate', 0),
-                    'top_5_hit_rate': summary.get('top_5_hit_rate', 0),
+                    'top_10_hit_rate': f"{top_10_rate:.1f}%" if top_10_rate else "N/A",
+                    'top_5_hit_rate': f"{top_5_rate:.1f}%" if top_5_rate else "N/A",
                 }
         except Exception as e:
             logger.warning(f"Could not fetch recent performance: {e}")
